@@ -1,18 +1,29 @@
 # SenDiMoniProg-IMU
 
-Repository for the **SenDiMoniProg-IMU** project, focused on integrating IMU sensors into embedded systems and supporting research activities within the **SenDiMoniProg** laboratory of the **Tracking** research group.  
+Repository for the **SenDiMoniProg-IMU** project, focused on integrating IMU sensors with embedded systems and the **ROS 2** middleware for real-time data processing, monitoring, and research within the **SenDiMoniProg Laboratory** of the **Tracking** research group.  
 
-This repository aims to simplify setup, development, and collaboration among project members.
+This repository provides source code, configuration files, and documentation to ease development and ensure collaboration among contributors.
 
 ---
 
 ## 🚀 Prerequisites
 
-Before getting started, make sure you have the following installed on your system:
+Before working with this repository, make sure you have:
 
-- [Git](https://git-scm.com/)
-- A [GitHub](https://github.com/) account
-- SSH access configured on your machine
+- [Git](https://git-scm.com/)  
+- A [GitHub](https://github.com/) account  
+- SSH access configured on your machine  
+- [Python 3.10+](https://www.python.org/downloads/)  
+- [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html) (recommended)  
+- [colcon](https://colcon.readthedocs.io/en/released/) for building ROS 2 workspaces  
+
+Verify your installations:
+
+```bash
+git --version
+python3 --version
+ros2 --version
+```
 
 ---
 
@@ -36,53 +47,107 @@ cat ~/.ssh/id_ed25519.pub
 
 ## 📥 Clone the Repository
 
-In the folder where you want to store the project:
+Clone the repo using SSH:
 
 ```bash
 git clone git@github.com:kosmicplane/SenDiMoniProg-IMU.git
 cd SenDiMoniProg-IMU
 ```
 
----
-
-## 🔄 Configure Remote
-
-If you need to update the repository remote:
+If you cloned using HTTPS and want to switch to SSH:
 
 ```bash
-git remote remove origin
-git remote add origin git@github.com:kosmicplane/SenDiMoniProg-IMU.git
+git remote set-url origin git@github.com:kosmicplane/SenDiMoniProg-IMU.git
 ```
 
 ---
 
-## 📌 Basic Workflow
+## ⚙️ Setup the Environment
 
-1. Make sure you are on the `main` branch:
+1. Create and activate a Python virtual environment:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+2. Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Initialize rosdep (for ROS dependencies):
+
+```bash
+sudo rosdep init   # only if not initialized before
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+---
+
+## 🔨 Build the Workspace
+
+Inside the repository folder:
+
+```bash
+colcon build --symlink-install
+```
+
+Source the environment:
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+```
+
+---
+
+## ▶️ Running the Code
+
+### Run the IMU Node
+```bash
+ros2 run imu_pkg imu_node
+```
+
+### Launch with Parameters
+```bash
+ros2 launch imu_pkg imu_launch.py use_sim_time:=false
+```
+
+### Visualize Data in RViz
+```bash
+rviz2 -d config/imu_visualization.rviz
+```
+
+---
+
+## 📌 Git Workflow
+
+Always keep your repository updated:
 
 ```bash
 git checkout main
-```
-
-2. Pull the latest changes:
-
-```bash
 git pull origin main
 ```
 
-3. Add your changes:
+When contributing:
 
 ```bash
+git checkout -b feature/your-feature-name
 git add .
-git commit -m "Description of your changes"
-git push
+git commit -m "Add feature: description"
+git push origin feature/your-feature-name
 ```
+
+Open a **Pull Request (PR)** on GitHub once your feature is ready.
 
 ---
 
 ## ✅ Confirm Your Participation
 
-Once the repository is cloned and configured, you can make your first commit to confirm that you joined:
+After cloning and configuring the repo, make your first commit:
 
 ```bash
 git add .
@@ -94,5 +159,7 @@ git push
 
 ## 📚 Additional Resources
 
-- [Official Git Documentation](https://git-scm.com/doc)  
+- [ROS 2 Documentation](https://docs.ros.org/en/humble/)  
+- [Git Best Practices](https://nvie.com/posts/a-successful-git-branching-model/)  
+- [Colcon Build System](https://colcon.readthedocs.io/en/released/)  
 - [Connecting to GitHub with SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
