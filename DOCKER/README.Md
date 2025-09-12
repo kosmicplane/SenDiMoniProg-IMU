@@ -1,45 +1,38 @@
-# 🐳 Dockerizing ROS 2 Kilted for SenDiMoniProg-IMU
+# 🐳 Docker Setup for ROS 2 Kilted
 
-This project includes a **Dockerized environment** to simplify the setup and execution of ROS 2 **Kilted** with all required dependencies for the **SenDiMoniProg-IMU** project.  
+This project provides a Dockerized environment to run **ROS 2 Kilted** with all required dependencies for the **SenDiMoniProg-IMU** project.  
 
-By using Docker, contributors can ensure that they all run the same environment, avoiding version conflicts and simplifying installation across different machines.
+By using Docker, contributors can run the same development environment without conflicts between ROS versions, Python packages, or system dependencies.
 
 ---
 
 ## 🎯 Why Dockerize ROS 2 Kilted?
 
-ROS 2 is complex and highly dependent on the operating system. Setting it up manually can lead to problems such as:  
-- Dependency conflicts between ROS distributions.  
-- Python/colcon build issues.  
-- Inconsistent environments across different contributors’ machines.  
-
-Docker solves this by:  
-- Packaging ROS 2 Kilted, dependencies, and the repo in one container.  
-- Providing reproducibility: *“it works on my machine”* becomes *“it works everywhere”*.  
-- Enabling quick rebuilds and clean environments.  
-- Allowing GUI applications (RViz, Gazebo, rqt) to run via X11 forwarding.  
+- Avoids version conflicts (ROS distributions, Python, system libraries).  
+- Provides a reproducible development environment.  
+- Simplifies onboarding of new contributors.  
+- Allows running GUI tools (RViz, Gazebo, rqt) from inside the container.  
+- Ensures everyone uses the same ROS 2 Kilted setup.  
 
 ---
 
-## ⚙️ Install Docker
+## ⚙️ Install Docker (Ubuntu only)
 
-### On Ubuntu
-
-Update your system and install Docker:
+1. Update your system and install required packages:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl gnupg lsb-release
 ```
 
-Add Docker’s official GPG key:
+2. Add Docker’s official GPG key:
 
 ```bash
 sudo mkdir -m 0755 -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 ```
 
-Set up the repository:
+3. Set up the repository:
 
 ```bash
 echo \
@@ -47,89 +40,68 @@ echo \
   $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
 
-Install Docker Engine and Compose:
+4. Install Docker Engine and Compose:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-Add your user to the `docker` group so you don’t need `sudo`:
+5. Add your user to the `docker` group (no need for `sudo` every time):
 
 ```bash
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-Verify the installation:
+6. Verify installation:
 
 ```bash
 docker --version
-docker run hello-world
+```
+
+Expected output (your case):
+
+```
+Docker version 28.4.0, build d8eb465
 ```
 
 ---
 
 ## 🛠️ Build the Docker Image
 
-Navigate to the `DOCKER` folder in this repo:
+From the `DOCKER` directory in this repository:
 
 ```bash
-cd DOCKER
+sudo docker build -t badkitten .
 ```
 
-Build the image:
-
-```bash
-docker build -t ros-kilted-imu:latest .
-```
+This will create an image named **badkitten** using the provided `Dockerfile`.
 
 ---
 
 ## ▶️ Run the Container
 
-To run interactively with GUI support (for RViz, Gazebo, etc.):
+Simply use the provided script:
 
 ```bash
-xhost local:root
-XAUTH=/tmp/.docker.xauth
-
-docker run -it --rm \
-    --net=host \
-    --env="DISPLAY=$DISPLAY" \
-    --env="QT_X11_NO_MITSHM=1" \
-    --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-    --volume="$XAUTH:$XAUTH" \
-    --privileged \
-    ros-kilted-imu:latest
+sudo ./run_docker.bash
 ```
 
-This will open a container with ROS 2 Kilted and your repo ready.
-
----
-
-## 🧩 Using Docker Compose
-
-Alternatively, you can use the `docker-compose.yml` file:
-
-```bash
-docker-compose up --build
-```
-
-This simplifies the process of starting the container with the proper environment.
+This script runs the container with the correct settings (network, display, volumes, privileges).
 
 ---
 
 ## 🚀 Inside the Container
 
-Once inside, source ROS 2 and your workspace:
+Once inside, source ROS 2 and the workspace:
 
 ```bash
 source /opt/ros/kilted/setup.bash
 [ -f install/setup.bash ] && source install/setup.bash
 ```
 
-Build your workspace:
+Build your packages:
 
 ```bash
 colcon build --symlink-install
@@ -141,7 +113,7 @@ Run your IMU node:
 ros2 run imu_pkg imu_node
 ```
 
-Or launch a complete setup:
+Or launch a setup:
 
 ```bash
 ros2 launch imu_pkg imu_launch.py
@@ -151,6 +123,7 @@ ros2 launch imu_pkg imu_launch.py
 
 ## 📚 References
 
-- [Install Docker on Ubuntu](https://docs.docker.com/engine/install/ubuntu/)  
+- [Docker Official Documentation](https://docs.docker.com/engine/install/ubuntu/)  
 - [ROS 2 Documentation](https://docs.ros.org/en/kilted/)  
-- [Docker & ROS Integration](https://wiki.ros.org/Docker)
+- [Colcon Build Tool](https://colcon.readthedocs.io/en/released/)
+
