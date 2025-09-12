@@ -20,10 +20,12 @@ Before getting started, make sure you have the following installed on your syste
 
 1. Generate a new SSH key (replace `"your github email"` with your GitHub email):
 
-   ssh-keygen -t ed25519 -C "your github email"
-   eval "$(ssh-agent -s)"
-   ssh-add ~/.ssh/id_ed25519
-   cat ~/.ssh/id_ed25519.pub
+```bash
+ssh-keygen -t ed25519 -C "your github email"
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+cat ~/.ssh/id_ed25519.pub
+```
 
 2. Copy the generated public key and add it to your GitHub account:  
    - Go to **Settings > SSH and GPG keys**  
@@ -36,8 +38,10 @@ Before getting started, make sure you have the following installed on your syste
 
 In the folder where you want to store the project:
 
-   git clone git@github.com:kosmicplane/SenDiMoniProg-IMU.git
-   cd SenDiMoniProg-IMU
+```bash
+git clone git@github.com:kosmicplane/SenDiMoniProg-IMU.git
+cd SenDiMoniProg-IMU
+```
 
 ---
 
@@ -45,8 +49,10 @@ In the folder where you want to store the project:
 
 If you need to update the repository remote:
 
-   git remote remove origin
-   git remote add origin git@github.com:kosmicplane/SenDiMoniProg-IMU.git
+```bash
+git remote remove origin
+git remote add origin git@github.com:kosmicplane/SenDiMoniProg-IMU.git
+```
 
 ---
 
@@ -54,17 +60,23 @@ If you need to update the repository remote:
 
 1. Make sure you are on the `main` branch:
 
-   git checkout main
+```bash
+git checkout main
+```
 
 2. Pull the latest changes:
 
-   git pull origin main
+```bash
+git pull origin main
+```
 
 3. Add your changes:
 
-   git add .
-   git commit -m "Description of your changes"
-   git push
+```bash
+git add .
+git commit -m "Description of your changes"
+git push
+```
 
 ---
 
@@ -72,9 +84,11 @@ If you need to update the repository remote:
 
 Once the repository is cloned and configured, you can make your first commit to confirm that you joined:
 
-   git add .
-   git commit -m "I have joined the repo"
-   git push
+```bash
+git add .
+git commit -m "I have joined the repo"
+git push
+```
 
 ---
 
