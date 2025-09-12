@@ -16,6 +16,13 @@ RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
 
 RUN echo "HOLA AMIGUITOS/ Hello little friends/ Ni Hao xiaopengyou/ Bonjour les petits amis/ Hallo kleine Freunde/ Ciao piccoli amici/ Привет маленькие друзья"
 
+
+# (Optional) Add Gazebo repository + install Gazebo Harmonic
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -sSL http://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
+    apt-get update && apt-get install -y gz-harmonic
+
 # Script de arranque
 RUN echo '#!/bin/bash\n\
 cd ..\
@@ -23,6 +30,7 @@ source /opt/ros/kilted/setup.bash\n\
 [ -f install/setup.bash ] && source install/setup.bash\n\
 apt-get update\n\
 echo "Done"\n\
+#pip3 install -r SenDiMoniProg-IMU/requirements.txt\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
