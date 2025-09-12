@@ -1,5 +1,6 @@
 # SenDiMoniProg-IMU // BADKITTEN REPOSITORY
-![Uploading image.png…]()
+<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/aabb7e62-e121-4b79-8e83-67cf1d2e53d2" />
+
 
 
 Repository for the **SenDiMoniProg-IMU** project, focused on integrating IMU sensors with embedded systems and the **ROS 2** middleware for real-time data processing, monitoring, and research within the **SenDiMoniProg Laboratory** of the **Tracking** research group.  
