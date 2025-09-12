@@ -1,4 +1,4 @@
-FROM ros:kilted
+FROM ros:kilted-perception-noble
 #FROM osrf/ros:humble-desktop-full
 RUN apt-get update && apt-get install -y \
     python3-pip \
@@ -18,11 +18,10 @@ RUN echo "HOLA AMIGUITOS/ Hello little friends/ Ni Hao xiaopengyou/ Bonjour les 
 
 # Script de arranque
 RUN echo '#!/bin/bash\n\
-cd /home/src/SenDiMoniProg-IMU\n\
+cd ..\
 source /opt/ros/kilted/setup.bash\n\
 [ -f install/setup.bash ] && source install/setup.bash\n\
 apt-get update\n\
-apt install ros-kilted-turtlesim\
 echo "Done"\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
