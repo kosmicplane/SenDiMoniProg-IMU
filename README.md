@@ -1,12 +1,8 @@
 # SenDiMoniProg-IMU // BADKITTEN REPOSITORY
-<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/aabb7e62-e121-4b79-8e83-67cf1d2e53d2" />
+<img width="512" height="512" alt="image" src="https://github.com/user-attachments/assets/aabb7e62-e121-4b79-8e83-67cf1d2e53d2" />
+The SenDiMoniProg-IMU project is part of the research activities carried out within the SenDiMoniProg Laboratory of the Tracking research group. Its main objective is to integrate Inertial Measurement Units (IMUs) with embedded systems and the ROS 2 framework, enabling real-time acquisition, processing, and visualization of motion and orientation data.
 
-
-
-Repository for the **SenDiMoniProg-IMU** project, focused on integrating IMU sensors with embedded systems and the **ROS 2** middleware for real-time data processing, monitoring, and research within the **SenDiMoniProg Laboratory** of the **Tracking** research group.  
-
-This repository provides source code, configuration files, and documentation to ease development and ensure collaboration among contributors.
-
+IMUs provide critical information such as acceleration, angular velocity, and orientation, which are fundamental in fields like robotics, aerospace engineering, autonomous vehicles, and diagnostics. However, using IMUs in isolation has limitations due to sensor drift, noise, and calibration requirements. This project addresses these challenges by providing tools and frameworks for sensor fusion and by integrating IMU data with other subsystems such as GPS, control algorithms, and visualization platforms.
 ---
 
 ## 🚀 Prerequisites
