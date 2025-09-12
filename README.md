@@ -8,13 +8,13 @@ This repository provides source code, configuration files, and documentation to 
 
 ## 🚀 Prerequisites
 
-Before working with this repository, make sure you have:
+Before working with this repository, make sure you have: 
 
 - [Git](https://git-scm.com/)  
 - A [GitHub](https://github.com/) account  
 - SSH access configured on your machine  
 - [Python 3.10+](https://www.python.org/downloads/)  
-- [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html) (recommended)  
+- [ROS 2 Kilted](https://docs.ros.org/en/kilted/Installation.html) (recommended) (ignore this for now cause the image includes everything you will need)
 - [colcon](https://colcon.readthedocs.io/en/released/) for building ROS 2 workspaces  
 
 Verify your installations:
