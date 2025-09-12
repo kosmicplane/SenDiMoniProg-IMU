@@ -84,45 +84,6 @@ sudo rosdep init   # only if not initialized before
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y
 ```
-
----
-
-## 🔨 Build the Workspace
-
-Inside the repository folder:
-
-```bash
-colcon build --symlink-install
-```
-
-Source the environment:
-
-```bash
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-```
-
----
-
-## ▶️ Running the Code
-
-### Run the IMU Node
-```bash
-ros2 run imu_pkg imu_node
-```
-
-### Launch with Parameters
-```bash
-ros2 launch imu_pkg imu_launch.py use_sim_time:=false
-```
-
-### Visualize Data in RViz
-```bash
-rviz2 -d config/imu_visualization.rviz
-```
-
----
-
 ## 📌 Git Workflow
 
 Always keep your repository updated:
