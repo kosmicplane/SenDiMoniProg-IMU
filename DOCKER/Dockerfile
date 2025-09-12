@@ -23,6 +23,17 @@ RUN mkdir -p /etc/apt/keyrings && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
     apt-get update && apt-get install -y gz-harmonic
 
+RUN apt-get update && apt-get install -y \
+    mesa-utils \
+    mesa-vulkan-drivers \
+    vulkan-tools \
+    libgl1-mesa-dri \
+    libglx-mesa0 \
+    libegl-mesa0 \
+    libgbm1 \
+    && rm -rf /var/lib/apt/lists/*
+
+
 # Script de arranque
 RUN echo '#!/bin/bash\n\
 cd ..\
