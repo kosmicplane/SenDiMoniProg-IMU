@@ -80,6 +80,24 @@ void loop() {
   float my = mag.m.y * 0.14f;
   float mz = mag.m.z * 0.14f;
 
+    // Output all sensor data in CSV
+  Serial.print(ax, 3); Serial.print(",");
+  Serial.print(ay, 3); Serial.print(",");
+  Serial.print(az, 3); Serial.print(",");
+
+  Serial.print(gx, 3); Serial.print(",");
+  Serial.print(gy, 3); Serial.print(",");
+  Serial.print(gz, 3); Serial.print(",");
+
+  Serial.print(mx, 3); Serial.print(",");
+  Serial.print(my, 3); Serial.print(",");
+  Serial.print(mz, 3); Serial.print(",");
+
+  Serial.print(pressure, 2); Serial.print(",");
+  Serial.print(temperature, 2); Serial.print(",");
+  Serial.println(altitude, 2);
+
+  '''
   // Output all sensor data
   Serial.print("A[g]: ");
   Serial.print(ax, 3); Serial.print(", ");
@@ -102,7 +120,7 @@ void loop() {
   Serial.print(temperature, 2);
   Serial.print(" | Alt[m]: ");
   Serial.println(altitude, 2);
-
+'''
   delay(5);
 }
 
