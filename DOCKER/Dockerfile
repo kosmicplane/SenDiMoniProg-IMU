@@ -25,6 +25,8 @@ RUN mkdir -p /etc/apt/keyrings && \
 RUN apt-get update && apt-get install -y \
     mesa-utils \
     mesa-vulkan-drivers \
+    ros-kilted-rclpy \
+    python3-serial\
     vulkan-tools \
     libgl1-mesa-dri \
     libglx-mesa0 \
@@ -33,7 +35,6 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
-
 
 # Script de arranque
 RUN echo '#!/bin/bash\n\

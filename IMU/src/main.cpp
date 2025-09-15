@@ -97,30 +97,6 @@ void loop() {
   Serial.print(temperature, 2); Serial.print(",");
   Serial.println(altitude, 2);
 
-  '''
-  // Output all sensor data
-  Serial.print("A[g]: ");
-  Serial.print(ax, 3); Serial.print(", ");
-  Serial.print(ay, 3); Serial.print(", ");
-  Serial.print(az, 3);
-
-  Serial.print(" | G[rad/s]: ");
-  Serial.print(gx, 2); Serial.print(", ");
-  Serial.print(gy, 2); Serial.print(", ");
-  Serial.print(gz, 2);
-
-  Serial.print(" | M[mG]: ");
-  Serial.print(mx, 1); Serial.print(", ");
-  Serial.print(my, 1); Serial.print(", ");
-  Serial.print(mz, 1);
-
-  Serial.print(" | P[mbar]: ");
-  Serial.print(pressure, 2);
-  Serial.print(" | T[C]: ");
-  Serial.print(temperature, 2);
-  Serial.print(" | Alt[m]: ");
-  Serial.println(altitude, 2);
-'''
   delay(5);
 }
 
