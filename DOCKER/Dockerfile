@@ -1,5 +1,4 @@
 FROM ros:kilted-perception-noble
-#FROM osrf/ros:humble-desktop-full
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-rosdep \
@@ -31,6 +30,8 @@ RUN apt-get update && apt-get install -y \
     libglx-mesa0 \
     libegl-mesa0 \
     libgbm1 \
+    ros-kilted-sensor-msgs-py \
+    ros-kilted-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 
