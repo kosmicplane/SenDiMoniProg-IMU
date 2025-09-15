@@ -1,6 +1,6 @@
 
 ## !!THIS FILE IS AUTO-GENERATED, AND IT'S UNDERCONSTRUCTION, DON'T USE IT OR RUN IT YET
-#!/bin/bash
+
 set -e
 
 echo "🚀 Installing dependencies for SenDiMoniProg-IMU..."

@@ -9,3 +9,5 @@ collections
 datetime
 multiprocessing
 pybluez
+geometry_msgs
+sensor_msgs
