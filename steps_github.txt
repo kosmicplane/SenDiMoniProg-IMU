@@ -1,0 +1,4 @@
+1. git pull #update ur local repo
+2. git add . # add your changes and additions
+3. git commit -m "message goes here" #give details about what you have done
+4. git push # upload all your work

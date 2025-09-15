@@ -1,0 +1,11 @@
+matplotlib
+numpy
+scipy
+pandas
+sklearn
+serial
+time
+collections
+datetime
+multiprocessing
+pybluez
