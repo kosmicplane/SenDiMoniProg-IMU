@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     vim \
     tmux \
-    ros-kilted-rviz2\
+    ros-kilted-rviz2-default-plugins\
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /home/src
