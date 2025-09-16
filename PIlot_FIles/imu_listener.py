@@ -22,7 +22,7 @@ class ImuListener(Node):
 
         # Quaternion → Euler
         qx, qy, qz, qw = msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w
-        roll, pitch, yaw = self.quaternion_to_euler(qx, qy, qz, qw)
+        roll, pitch, yaw = self.quaternion_to_euler(qx, qy, qz, qw)*180.0/math.pi  # rad → grados
 
         self.get_logger().info(
             f"Acc[g]: ({ax:.3f}, {ay:.3f}, {az:.3f}) | "
@@ -43,7 +43,7 @@ class ImuListener(Node):
 
         t3 = +2.0 * (w * z + x * y)
         t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw = math.atan2(t3, t4)
+        yaw = math.atan2(t3, t4) 
 
         return roll, pitch, yaw
 

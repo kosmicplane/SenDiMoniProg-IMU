@@ -5,6 +5,7 @@ import serial
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Quaternion
 import math
+from builtin_interfaces.msg import Time
 
 class ImuPublisher(Node):
     def __init__(self):
@@ -43,11 +44,23 @@ class ImuPublisher(Node):
 
             # Orientación (ejemplo: usamos magnetómetro como placeholder)
             # ⚠️ Mejor integrar un filtro de fusión como Madgwick/Mahony
+            # Orientación (ejemplo: usamos magnetómetro como placeholder)
             qx, qy, qz, qw = self.euler_to_quaternion(mx, my, mz)
+
+            # Paso 2: Normalizar cuaternión
+            norm = math.sqrt(qx*qx + qy*qy + qz*qz + qw*qw)
+            if norm > 0.0:  # evitar división por cero
+                qx /= norm
+                qy /= norm
+                qz /= norm
+                qw /= norm
+
             imu_msg.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
 
             # Publicar
             self.publisher_.publish(imu_msg)
+            imu_msg.header.stamp = self.get_clock().now().to_msg()
+            imu_msg.header.frame_id = "imu_link"
 
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
@@ -76,6 +89,7 @@ def main(args=None):
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 
 if __name__ == '__main__':
