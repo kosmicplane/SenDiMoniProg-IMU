@@ -23,7 +23,7 @@ class ImuPublisher(Node):
         self.timer = self.create_timer(0.02, self.timer_callback)
 
         self.madgwick = Madgwick()
-        self.q = np.array({1.0,0.0,0.0,0.0})
+        self.q = np.array([1.0, 0.0, 0.0, 0.0])  # cuaternión inicial
 
     def timer_callback(self):
         line = self.ser.readline().decode('utf-8').strip()
@@ -49,18 +49,24 @@ class ImuPublisher(Node):
 
             # Orientación (ejemplo: usamos magnetómetro como placeholder)
             # ⚠️ Mejor integrar un filtro de fusión como Madgwick/Mahony
-            # Orientación (ejemplo: usamos magnetómetro como placeholder)
-            qx, qy, qz, qw = self.euler_to_quaternion(mx, my, mz)
+            acc = np.array([ax, ay, az])
+            gyr = np.array([gx, gy, gz])
+            mag = np.array([mx, my, mz])
 
-            # Paso 2: Normalizar cuaternión
-            norm = math.sqrt(qx*qx + qy*qy + qz*qz + qw*qw)
-            if norm > 0.0:  # evitar división por cero
-                qx /= norm
-                qy /= norm
-                qz /= norm
-                qw /= norm
+            # Actualizar con Madgwick
+            self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc, mag=mag)
 
-            imu_msg.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
+            # Normalizar
+            norm = np.linalg.norm(self.q)
+            if norm > 0:
+                self.q /= norm
+
+            imu_msg.orientation = Quaternion(
+                x=float(self.q[1]),
+                y=float(self.q[2]),
+                z=float(self.q[3]),
+                w=float(self.q[0])
+            )
 
             # Publicar
             
