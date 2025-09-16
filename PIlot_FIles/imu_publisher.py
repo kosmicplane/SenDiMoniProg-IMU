@@ -54,7 +54,7 @@ class ImuPublisher(Node):
             mag = np.array([mx, my, mz])
 
             # Actualizar con Madgwick
-            self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc, mag=mag)
+            self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
 
             # Normalizar
             norm = np.linalg.norm(self.q)
