@@ -6,6 +6,8 @@ from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Quaternion
 import math
 from builtin_interfaces.msg import Time
+from ahrs.filters import Madgwick
+import numpy as np
 
 class ImuPublisher(Node):
     def __init__(self):
@@ -19,6 +21,9 @@ class ImuPublisher(Node):
 
         # Timer a 50 Hz
         self.timer = self.create_timer(0.02, self.timer_callback)
+
+        self.madgwick = Madgwick()
+        self.q = np.array({1.0,0.0,0.0,0.0})
 
     def timer_callback(self):
         line = self.ser.readline().decode('utf-8').strip()
