@@ -58,11 +58,10 @@ class ImuPublisher(Node):
             imu_msg.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
 
             # Publicar
-            self.publisher_.publish(imu_msg)
+            
             imu_msg.header.stamp = self.get_clock().now().to_msg()
             imu_msg.header.frame_id = "imu_link"
             self.publisher_.publish(imu_msg)
-
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
 
