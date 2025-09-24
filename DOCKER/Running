@@ -1,0 +1,5 @@
+1. build the image
+sudo docker build -t badkitten:latest .
+2. run the docker 
+chmod +x run_docker.bash
+sudo ./run_docker.bash
