@@ -23,6 +23,9 @@ RUN mkdir -p /etc/apt/keyrings && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
     apt-get update && apt-get install -y gz-harmonic
 
+WORKDIR /home
+RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
+
 # Entrypoint para GUI
 RUN echo '#!/bin/bash\n\
 source /opt/ros/kilted/setup.bash\n\
