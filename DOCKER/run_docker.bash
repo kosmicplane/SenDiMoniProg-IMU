@@ -11,5 +11,7 @@ docker run -it --rm \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume="$XAUTH:$XAUTH" \
     --privileged \
+    -p 11345:11345 \
+    -p 11346:11346 \
     badkitten:latest
 

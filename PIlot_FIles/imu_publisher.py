@@ -16,8 +16,10 @@ class ImuPublisher(Node):
         # Publisher
         self.publisher_ = self.create_publisher(Imu, '/imu/data_raw', 10)
 
-        # Puerto serial del ESP32 (ajusta al tuyo)
-        self.ser = serial.Serial('/dev/ttyUSB0', 230400, timeout=1)
+        # SWITCH ACCORDING TO YOUR IMU CONNECTION BLUETOOTH OR USB
+        #self.ser = serial.Serial('/dev/ttyUSB0', 230400, timeout=1)
+        self.ser = serial.Serial('/dev/rfcomm0', 230400, timeout=1)
+
 
         # Timer a 50 Hz
         self.timer = self.create_timer(0.02, self.timer_callback)
