@@ -38,6 +38,8 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+
+    
 # Script de arranque
 RUN echo '#!/bin/bash\n\
 cd ..\
