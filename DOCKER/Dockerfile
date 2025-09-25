@@ -46,8 +46,7 @@ RUN apt-get update && apt-get install -y \
     export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml&&\
     export GAZEBO_MASTER_URI=http://192.168.55.1:11345\
     export GAZEBO_RESOURCE_PATH=/usr/share/gz&&\
-    export GZ_SIM_RESOURCE_PATH=/usr/share/gz\
-
+    export GZ_SIM_RESOURCE_PATH=/usr/share/gz
     
 # Script de arranque
 RUN echo '#!/bin/bash\n\
@@ -58,5 +57,4 @@ apt-get update\n\
 echo "Done"\n\
 #pip3 install -r SenDiMoniProg-IMU/requirements.txt\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
-
 CMD ["/entrypoint.sh"]
