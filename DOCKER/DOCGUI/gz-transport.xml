@@ -1,12 +1,17 @@
 <transport>
   <connections>
+    <!-- Conexión Jetson (servidor Gazebo) -->
     <connection>
-      <address>192.168.55.1</address> <!-- Jetson -->
-      <port>40403</port>              <!-- puerto TCP que viste en netstat -->
+      <address>192.168.55.1</address>
+      <port>33209</port>
     </connection>
     <connection>
-      <address>192.168.55.100</address> <!-- PC -->
-      <port>40403</port>
+      <address>192.168.55.1</address>
+      <port>42869</port>
+    </connection>
+    <connection>
+      <address>192.168.55.1</address>
+      <port>43377</port>
     </connection>
   </connections>
 </transport>
