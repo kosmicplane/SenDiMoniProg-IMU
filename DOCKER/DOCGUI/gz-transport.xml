@@ -3,15 +3,15 @@
     <!-- Conexión Jetson (servidor Gazebo) -->
     <connection>
       <address>192.168.55.1</address>
-      <port>33209</port>
+      <port>37707</port>
     </connection>
     <connection>
       <address>192.168.55.1</address>
-      <port>42869</port>
+      <port>45703</port>
     </connection>
     <connection>
       <address>192.168.55.1</address>
-      <port>43377</port>
+      <port>36253</port>
     </connection>
   </connections>
 </transport>
