@@ -1,0 +1,12 @@
+<transport>
+  <connections>
+    <connection>
+      <address>192.168.55.1</address> <!-- Jetson -->
+      <port>40403</port>              <!-- puerto TCP que viste en netstat -->
+    </connection>
+    <connection>
+      <address>192.168.55.100</address> <!-- PC -->
+      <port>40403</port>
+    </connection>
+  </connections>
+</transport>

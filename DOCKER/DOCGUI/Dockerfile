@@ -37,8 +37,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
 
+RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git 
 # Variables persistentes
 RUN export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && \
     export ROS_DOMAIN_ID=42 && \

@@ -10,11 +10,11 @@ mkdir -p $XDG_RUNTIME_DIR
 chmod 700 $XDG_RUNTIME_DIR
 
 docker run -it --rm \
-    --device=/dev/dri/card1 \
-    --device=/dev/dri/renderD128 \
-    --net=host \
+    --network host \
+    --device=/dev/dri:/dev/dri \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume=$XAUTH:$XAUTH \
-    godkitten:latest
+    --volume /usr/lib/x86_64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:ro \
+    godkitten:latest gz gui
