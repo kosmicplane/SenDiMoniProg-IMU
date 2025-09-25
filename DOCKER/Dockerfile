@@ -34,6 +34,10 @@ RUN apt-get update && apt-get install -y \
     libglx-mesa0 \
     libegl-mesa0 \
     libgbm1 \
+    netcat-traditional\
+    iputils-ping\
+    net-tools\
+    iproute2\
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
