@@ -2,16 +2,16 @@
   <connections>
     <!-- Conexión Jetson (servidor Gazebo) -->
     <connection>
-      <address>192.168.137.151 </address>
-      <port>37707</port>
+      <address>172.17.0.1</address>
+      <port>45565</port>
     </connection>
     <connection>
-      <address>192.168.55.1</address>
-      <port>45703</port>
+      <address>172.17.0.1</address>
+      <port>44965</port>
     </connection>
     <connection>
       <address>172.17.0.1 </address>
-      <port>36253</port>
+      <port>38077</port>
     </connection>
   </connections>
 </transport>
