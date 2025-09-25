@@ -33,6 +33,10 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
     ros-kilted-rclpy \
+    netcat-traditional\
+    iputils-ping\
+    net-tools\
+    iproute2\
     python3-serial \
     && rm -rf /var/lib/apt/lists/*
 
