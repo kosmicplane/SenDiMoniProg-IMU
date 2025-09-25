@@ -40,12 +40,12 @@ WORKDIR /home
 RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
 
 # Variables persistentes
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ENV ROS_DOMAIN_ID=42
-ENV export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml 
-ENV GAZEBO_MASTER_URI=http://192.168.55.1:11345
-ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
-ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
+RUN export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && \
+    export ROS_DOMAIN_ID=42 && \
+    export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml && \ 
+    export GAZEBO_MASTER_URI=http://192.168.55.1:11345\ 
+    export GAZEBO_RESOURCE_PATH=/usr/share/gz && \
+    export GZ_SIM_RESOURCE_PATH=/usr/share/gz
 
 # Entrypoint mejorado
 RUN echo '#!/bin/bash\n\

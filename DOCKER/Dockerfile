@@ -37,14 +37,17 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    ros-kilted-ros-gz-bridge \
+    ros-kilted-ros-gz-sim \
+    && rm -rf /var/lib/apt/lists/*\
+    RMW_IMPLEMENTATION=rmw_fastrtps_cpp\
+    ROS_DOMAIN_ID=42\
+    FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml\
+    GAZEBO_MASTER_URI=http://192.168.55.1:11345\
+    GAZEBO_RESOURCE_PATH=/usr/share/gz\
+    GZ_SIM_RESOURCE_PATH=/usr/share/gz\
 
-RUN export RMW_IMPLEMENTATION=rmw_fastrtps_cpp\
-    && export ROS_DOMAIN_ID=42\
-    && export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml\
-    && export GAZEBO_MASTER_URI=http://192.168.55.1:11345\
-    && export GAZEBO_RESOURCE_PATH=/usr/share/gz\
-    && export GZ_SIM_RESOURCE_PATH=/usr/share/gz\
-    echo "bad kitten on board"
     
 # Script de arranque
 RUN echo '#!/bin/bash\n\
