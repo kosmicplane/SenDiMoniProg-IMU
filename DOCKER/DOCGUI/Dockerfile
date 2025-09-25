@@ -34,4 +34,10 @@ export GZ_SIM_RESOURCE_PATH=/usr/share/gz\n\
 echo "Starting Gazebo GUI and ready for ROS 2 nodes..."\n\
 exec gz gui' > /entrypoint.sh && chmod +x /entrypoint.sh
 
+RUN export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && \
+    export ROS_DOMAIN_ID=42 && \
+    export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml && \
+    export GAZEBO_MASTER_URI=http://192.168.55.1:11345\
+    export GAZEBO_RESOURCE_PATH=/usr/share/gz && \
+    export GZ_SIM_RESOURCE_PATH=/usr/share/gz
 CMD ["/entrypoint.sh"]
