@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y \
     iputils-ping\
     net-tools\
     iproute2\
+    ros-kilted-rqt\
+    ros-kilted-rqt-common-plugins\
     python3-serial \
     && rm -rf /var/lib/apt/lists/*
 
