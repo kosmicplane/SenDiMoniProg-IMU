@@ -181,3 +181,25 @@ Now, only key-based authentication will be allowed, blocking brute-force passwor
 
         Enable and configure a firewall (e.g., UFW) with specific rules.
 
+
+
+
+VNS:
+
+first connect ur pc ussing SSH WIRELESS To jetsson nano and after that:
+
+
+1. Jetson:
+
+badkitten@badkitten:~$ x11vnc -display :0 -auth guess -forever -rfbauth ~/.vnc/passwd -listen 0.0.0.0        -xkb -noxrecord -noxfixes -noxdamage -permitfiletransfer -capslock -repeat -shared 
+
+2. IN UR pc power shell:
+    *Windows Download VNC viewer
+
+    *linux:
+    sudo apt update
+    sudo apt install tigervnc-viewer remmina -y
+    sudo ufw allow 5900/tcp
+    vncviewer 192.168.137.151:5900
+
+
