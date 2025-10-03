@@ -57,7 +57,6 @@ def data_saver(data_queue, stop_event, save_event, filename):
     buffer_size = 100
     data_buffer = []
 
-    # 自動抓主目錄並建立存檔資料夾
     save_dir = os.path.expanduser("~/Desktop/SenDiMoniProg-IMU/Bluetooth_IMU/IMU_Data")
     os.makedirs(save_dir, exist_ok=True)
     full_path = os.path.join(save_dir, filename)
@@ -116,10 +115,13 @@ if __name__ == '__main__':
             user_input = input().strip().lower()
             if user_input == 's':
                 save_event.set()
+                print(">> Saving started")
             elif user_input == 'e':
                 save_event.clear()
+                print(">> Saving stopped")
             elif user_input == 'q':
                 stop_event.set()
+                print(">> Program exiting")
                 break
     except KeyboardInterrupt:
         stop_event.set()
