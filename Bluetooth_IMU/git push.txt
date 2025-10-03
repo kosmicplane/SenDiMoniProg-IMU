@@ -1,0 +1,42 @@
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git add
+Nothing specified, nothing added.
+hint: Maybe you wanted to say 'git add .'?
+hint: Disable this message with "git config set advice.addEmptyPathspec false"
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git add.
+git: 'add.' is not a git command. See 'git --help'.
+
+The most similar command is
+        add
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git add .
+warning: in the working copy of 'Bluetooth_IMU/data_saving.py', LF will be replaced by CRLF the next time Git touches it
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git commit -m "data_saving"
+Author identity unknown
+
+*** Please tell me who you are.
+
+Run
+
+  git config --global user.email "you@example.com"
+  git config --global user.name "Your Name"
+
+to set your account's default identity.
+Omit --global to set the identity only in this repository.
+
+fatal: unable to auto-detect email address (got 'Bryan@LAPTOP-F2LM095V.(none)')
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git config --global user.email "chiou36931282@gmail.com"
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git config --global user.name "Your Name"
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git add .
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git commit -m "data_saving"
+[main 2d5065a] data_saving
+ 1 file changed, 26 insertions(+), 40 deletions(-)
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> git push
+Enumerating objects: 7, done.
+Counting objects: 100% (7/7), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (4/4), done.
+Writing objects: 100% (4/4), 900 bytes | 900.00 KiB/s, done.
+Total 4 (delta 3), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (3/3), completed with 3 local objects.
+To github.com:kosmicplane/SenDiMoniProg-IMU.git
+   1838f6c..2d5065a  main -> main
+PS C:\Users\Bryan\Desktop\Bryan\06_Code\ESP32\SenDiMoniProg-IMU> 

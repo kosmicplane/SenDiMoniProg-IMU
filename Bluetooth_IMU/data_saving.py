@@ -1,5 +1,4 @@
 import bluetooth
-import time
 import os
 import re
 import select
@@ -11,18 +10,12 @@ bd_addr = "70:B8:F6:67:0E:E6"
 port = 1
 
 def data_collector(bd_addr, port, data_queue, stop_event):
-    """
-    Connect to Bluetooth device, read data, and put into queue.
-    Runs in a separate process.
-    """
     sock = None
     try:
         sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
         sock.connect((bd_addr, port))
         sock.setblocking(0)
-        print("Collector: Bluetooth connected!")
-    except bluetooth.btcommon.BluetoothError as err:
-        print(f"Collector: Bluetooth connection failed: {err}")
+    except bluetooth.btcommon.BluetoothError:
         stop_event.set()
         return
 
@@ -31,7 +24,7 @@ def data_collector(bd_addr, port, data_queue, stop_event):
         try:
             ready_to_read, _, _ = select.select([sock], [], [], 0)
             if ready_to_read:
-                data = sock.recv(4096)  # bigger buffer
+                data = sock.recv(4096)
                 data_buffer += data.decode('utf-8', errors='ignore')
 
             while '\n' in data_buffer:
@@ -51,39 +44,31 @@ def data_collector(bd_addr, port, data_queue, stop_event):
                         }
                         data_queue.put(parsed_data)
                     except (ValueError, IndexError):
-                        pass  # ignore bad line
-                else:
-                    pass  # ignore unmatched line
-
+                        pass
         except (bluetooth.btcommon.BluetoothError, ValueError):
             stop_event.set()
             break
         
     if sock:
         sock.close()
-    print("Collector has stopped.")
 
-# --- Data Saver Process ---
 def data_saver(data_queue, stop_event, save_event, filename):
-    """
-    Save parsed data to file.
-    Runs in a separate process.
-    """
     data_file = None
-    
-    buffer_size = 100  # buffer size
+    buffer_size = 100
     data_buffer = []
+
+    # 自動抓主目錄並建立存檔資料夾
+    save_dir = os.path.expanduser("~/Desktop/SenDiMoniProg-IMU/Bluetooth_IMU/IMU_Data")
+    os.makedirs(save_dir, exist_ok=True)
+    full_path = os.path.join(save_dir, filename)
 
     while not stop_event.is_set():
         if save_event.is_set():
             if data_file is None:
                 try:
-                    full_path = os.path.join("/home/e454/Desktop/SenDiMoniProg-IMU/Bluetooth_IMU/IMU_Data", filename)
                     data_file = open(full_path, 'w', encoding='utf-8')
                     data_file.write('t,Ax,Ay,Az,Gx,Gy,Gz,Mx,My,Mz,Alt\n')
-                    print(f'Data Saver: Started saving to {full_path}')
-                except Exception as e:
-                    print(f'Data Saver: Failed to open file: {e}')
+                except Exception:
                     save_event.clear()
         else:
             if data_file:
@@ -92,7 +77,6 @@ def data_saver(data_queue, stop_event, save_event, filename):
                 data_buffer = []
                 data_file.close()
                 data_file = None
-                print('Data Saver: File closed.')
 
         if data_file and not data_queue.empty():
             try:
@@ -103,17 +87,15 @@ def data_saver(data_queue, stop_event, save_event, filename):
                     for line in data_buffer:
                         data_file.write(line)
                     data_buffer = []
-            except Exception as e:
-                print(f"Data Saver: Write error: {e}")
+            except Exception:
                 if data_file:
                     data_file.close()
                     data_file = None
 
     if data_file:
         data_file.close()
-    print("Data Saver has stopped.")
 
-# --- Main Program Entry ---
+# --- Main ---
 if __name__ == '__main__':
     data_queue = Queue()
     stop_event = Event()
@@ -129,18 +111,13 @@ if __name__ == '__main__':
     saver_process.daemon = True
     saver_process.start()
 
-    print("Program started.")
-    print("Press 's' to start saving, 'e' to stop saving, 'q' to quit.")
-
     try:
         while True:
             user_input = input().strip().lower()
             if user_input == 's':
                 save_event.set()
-                print("Saving started.")
             elif user_input == 'e':
                 save_event.clear()
-                print("Saving stopped.")
             elif user_input == 'q':
                 stop_event.set()
                 break
@@ -149,4 +126,3 @@ if __name__ == '__main__':
         
     collector_process.join()
     saver_process.join()
-    print("Program exited completely.")
