@@ -4,7 +4,7 @@ xhost local:root
 XAUTH=/tmp/.docker.xauth
 
 docker run -it --rm \
-    --device=/dev/ttyUSB0:/dev/ttyUSB0 \
+    --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
@@ -12,6 +12,3 @@ docker run -it --rm \
     --volume="$XAUTH:$XAUTH" \
     --privileged \
     badkitten:latest
-
-    #-p 11345:11345 \
-    #-p 11346:11346 \

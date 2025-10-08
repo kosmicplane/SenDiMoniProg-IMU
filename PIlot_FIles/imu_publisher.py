@@ -1,109 +1,103 @@
-#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
+from std_msgs.msg import Float32
 import serial
-from sensor_msgs.msg import Imu
-from geometry_msgs.msg import Quaternion
-import math
-from builtin_interfaces.msg import Time
-from ahrs.filters import Madgwick
-import numpy as np
+import time
 
-class ImuPublisher(Node):
+class BluetoothIMUPublisher(Node):
     def __init__(self):
-        super().__init__('imu_publisher')
+        super().__init__('bluetooth_imu_publisher')
 
-        # Publisher
-        self.publisher_ = self.create_publisher(Imu, '/imu/data_raw', 10)
+        # --- Publishers ---
+        self.imu_pub = self.create_publisher(Imu, 'imu/data_raw', 10)
+        self.mag_pub = self.create_publisher(MagneticField, 'imu/mag', 10)
+        self.pres_pub = self.create_publisher(FluidPressure, 'imu/pressure', 10)
+        self.temp_pub = self.create_publisher(Temperature, 'imu/temperature', 10)
+        self.alt_pub = self.create_publisher(Float32, 'imu/altitude', 10)
 
-        # SWITCH ACCORDING TO YOUR IMU CONNECTION BLUETOOTH OR USB
-        #self.ser = serial.Serial('/dev/ttyUSB0', 230400, timeout=1)
-        self.ser = serial.Serial('/dev/rfcomm0', 230400, timeout=1)
+        # --- Serial (Bluetooth RFCOMM) ---
+        self.port = "/dev/rfcomm0"       # creado en el host Jetson
+        self.baudrate = 230400           # igual que en el ESP32
+        self.ser = None
+        self.connect_serial()
 
+        self.timer = self.create_timer(0.02, self.read_data)  # ~50 Hz
 
-        # Timer a 50 Hz
-        self.timer = self.create_timer(0.02, self.timer_callback)
+    # ---- Conexión Serial ----
+    def connect_serial(self):
+        while self.ser is None:
+            try:
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05)
+                self.get_logger().info(f"✅ Connected to {self.port}")
+            except Exception as e:
+                self.get_logger().error(f"Retrying connection: {e}")
+                time.sleep(2)
 
-        self.madgwick = Madgwick()
-        self.q = np.array([1.0, 0.0, 0.0, 0.0])  # cuaternión inicial
-
-    def timer_callback(self):
-        line = self.ser.readline().decode('utf-8').strip()
-        if not line:
-            return
-
+    # ---- Lectura periódica ----
+    def read_data(self):
         try:
-            # Espera CSV: ax,ay,az,gx,gy,gz,mx,my,mz,pressure,temp,alt
-            values = list(map(float, line.split(',')))
-            ax, ay, az, gx, gy, gz, mx, my, mz, pressure, temp, alt = values
+            line = self.ser.readline().decode(errors='ignore').strip()
+            if not line:
+                return
+            self.process_line(line)
+        except Exception as e:
+            self.get_logger().warn(f"Read error: {e}")
 
+    # ---- Procesamiento de línea CSV ----
+    def process_line(self, line):
+        try:
+            parts = line.split(',')
+            if len(parts) != 12:
+                return  # línea incompleta
+            ax, ay, az, gx, gy, gz, mx, my, mz, pressure, temperature, altitude = map(float, parts)
+
+            # --- IMU (acelerómetro + giroscopio) ---
             imu_msg = Imu()
-
-            # Aceleración
-            imu_msg.linear_acceleration.x = ax
-            imu_msg.linear_acceleration.y = ay
-            imu_msg.linear_acceleration.z = az
-
-            # Giroscopio
-            imu_msg.angular_velocity.x = gx
+            imu_msg.header.frame_id = "imu_link"
+            imu_msg.header.stamp = self.get_clock().now().to_msg()
+            imu_msg.linear_acceleration.x = ax * 9.80665   # g → m/s²
+            imu_msg.linear_acceleration.y = ay * 9.80665
+            imu_msg.linear_acceleration.z = az * 9.80665
+            imu_msg.angular_velocity.x = gx               # rad/s ya en ESP32
             imu_msg.angular_velocity.y = gy
             imu_msg.angular_velocity.z = gz
+            self.imu_pub.publish(imu_msg)
 
-            # Orientación (ejemplo: usamos magnetómetro como placeholder)
-            # ⚠️ Mejor integrar un filtro de fusión como Madgwick/Mahony
-            acc = np.array([ax, ay, az])
-            gyr = np.array([gx, gy, gz])
-            mag = np.array([mx, my, mz])
+            # --- Magnetómetro ---
+            mag_msg = MagneticField()
+            mag_msg.header = imu_msg.header
+            mag_msg.magnetic_field.x = mx * 1e-6  # mGauss → Tesla
+            mag_msg.magnetic_field.y = my * 1e-6
+            mag_msg.magnetic_field.z = mz * 1e-6
+            self.mag_pub.publish(mag_msg)
 
-            # Actualizar con Madgwick
-            self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
+            # --- Presión ---
+            pres_msg = FluidPressure()
+            pres_msg.header = imu_msg.header
+            pres_msg.fluid_pressure = pressure * 100.0  # mbar → Pa
+            self.pres_pub.publish(pres_msg)
 
-            # Normalizar
-            norm = np.linalg.norm(self.q)
-            if norm > 0:
-                self.q /= norm
+            # --- Temperatura ---
+            temp_msg = Temperature()
+            temp_msg.header = imu_msg.header
+            temp_msg.temperature = temperature
+            self.temp_pub.publish(temp_msg)
 
-            imu_msg.orientation = Quaternion(
-                x=float(self.q[1]),
-                y=float(self.q[2]),
-                z=float(self.q[3]),
-                w=float(self.q[0])
-            )
+            # --- Altitud ---
+            alt_msg = Float32()
+            alt_msg.data = altitude
+            self.alt_pub.publish(alt_msg)
 
-            # Publicar
-            
-            imu_msg.header.stamp = self.get_clock().now().to_msg()
-            imu_msg.header.frame_id = "imu_link"
-            self.publisher_.publish(imu_msg)
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
 
-    def euler_to_quaternion(self, roll, pitch, yaw):
-        """
-        Convierte ángulos de Euler (rad) a quaternion (x,y,z,w)
-        """
-        cy = math.cos(yaw * 0.5)
-        sy = math.sin(yaw * 0.5)
-        cp = math.cos(pitch * 0.5)
-        sp = math.sin(pitch * 0.5)
-        cr = math.cos(roll * 0.5)
-        sr = math.sin(roll * 0.5)
-
-        qw = cr * cp * cy + sr * sp * sy
-        qx = sr * cp * cy - cr * sp * sy
-        qy = cr * sp * cy + sr * cp * sy
-        qz = cr * cp * sy - sr * sp * cy
-        return (qx, qy, qz, qw)
-
-
 def main(args=None):
     rclpy.init(args=args)
-    node = ImuPublisher()
+    node = BluetoothIMUPublisher()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
-
-
 
 if __name__ == '__main__':
     main()
