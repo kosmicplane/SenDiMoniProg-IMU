@@ -1,4 +1,5 @@
 import rclpy
+import re
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
 from std_msgs.msg import Float32
@@ -44,53 +45,55 @@ class BluetoothIMUPublisher(Node):
         except Exception as e:
             self.get_logger().warn(f"Read error: {e}")
 
-    # ---- Procesamiento de línea CSV ----
+
     def process_line(self, line):
-        try:
-            parts = line.split(',')
-            if len(parts) != 12:
-                return  # línea incompleta
-            ax, ay, az, gx, gy, gz, mx, my, mz, pressure, temperature, altitude = map(float, parts)
+    try:
+        # Extrae todos los números flotantes de la línea
+        values = re.findall(r"[-+]?\d*\.\d+|\d+", line)
+        if len(values) < 12:
+            # Muestra debug si no hay suficientes valores
+            print(f"⚠️  Línea incompleta ({len(values)} valores): {line}")
+            return
 
-            # --- IMU (acelerómetro + giroscopio) ---
-            imu_msg = Imu()
-            imu_msg.header.frame_id = "imu_link"
-            imu_msg.header.stamp = self.get_clock().now().to_msg()
-            imu_msg.linear_acceleration.x = ax * 9.80665   # g → m/s²
-            imu_msg.linear_acceleration.y = ay * 9.80665
-            imu_msg.linear_acceleration.z = az * 9.80665
-            imu_msg.angular_velocity.x = gx               # rad/s ya en ESP32
-            imu_msg.angular_velocity.y = gy
-            imu_msg.angular_velocity.z = gz
-            self.imu_pub.publish(imu_msg)
+        # Convierte los primeros 12 a float
+        ax, ay, az, gx, gy, gz, mx, my, mz, pressure, temperature, altitude = map(float, values[:12])
 
-            # --- Magnetómetro ---
-            mag_msg = MagneticField()
-            mag_msg.header = imu_msg.header
-            mag_msg.magnetic_field.x = mx * 1e-6  # mGauss → Tesla
-            mag_msg.magnetic_field.y = my * 1e-6
-            mag_msg.magnetic_field.z = mz * 1e-6
-            self.mag_pub.publish(mag_msg)
+        imu_msg = Imu()
+        imu_msg.header.frame_id = "imu_link"
+        imu_msg.header.stamp = self.get_clock().now().to_msg()
+        imu_msg.linear_acceleration.x = ax * 9.80665
+        imu_msg.linear_acceleration.y = ay * 9.80665
+        imu_msg.linear_acceleration.z = az * 9.80665
+        imu_msg.angular_velocity.x = gx
+        imu_msg.angular_velocity.y = gy
+        imu_msg.angular_velocity.z = gz
+        self.imu_pub.publish(imu_msg)
 
-            # --- Presión ---
-            pres_msg = FluidPressure()
-            pres_msg.header = imu_msg.header
-            pres_msg.fluid_pressure = pressure * 100.0  # mbar → Pa
-            self.pres_pub.publish(pres_msg)
+        mag_msg = MagneticField()
+        mag_msg.header = imu_msg.header
+        mag_msg.magnetic_field.x = mx * 1e-6
+        mag_msg.magnetic_field.y = my * 1e-6
+        mag_msg.magnetic_field.z = mz * 1e-6
+        self.mag_pub.publish(mag_msg)
 
-            # --- Temperatura ---
-            temp_msg = Temperature()
-            temp_msg.header = imu_msg.header
-            temp_msg.temperature = temperature
-            self.temp_pub.publish(temp_msg)
+        pres_msg = FluidPressure()
+        pres_msg.header = imu_msg.header
+        pres_msg.fluid_pressure = pressure * 100.0
+        self.pres_pub.publish(pres_msg)
 
-            # --- Altitud ---
-            alt_msg = Float32()
-            alt_msg.data = altitude
-            self.alt_pub.publish(alt_msg)
+        temp_msg = Temperature()
+        temp_msg.header = imu_msg.header
+        temp_msg.temperature = temperature
+        self.temp_pub.publish(temp_msg)
 
-        except Exception as e:
-            self.get_logger().warn(f"Parse error: {e}")
+        alt_msg = Float32()
+        alt_msg.data = altitude
+        self.alt_pub.publish(alt_msg)
+
+        print(f"✅ Publicado: {ax:.3f}, {ay:.3f}, {az:.3f}, {temperature:.2f}°C, {altitude:.1f}m")
+
+    except Exception as e:
+        self.get_logger().warn(f"Parse error: {e}")
 
 def main(args=None):
     rclpy.init(args=args)

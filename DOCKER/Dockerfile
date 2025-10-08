@@ -26,6 +26,7 @@ RUN mkdir -p /etc/apt/keyrings && \
 
 RUN apt-get update && apt-get install -y \
     mesa-utils \
+    re\
     mesa-vulkan-drivers \
     ros-kilted-rclpy \
     python3-serial\
