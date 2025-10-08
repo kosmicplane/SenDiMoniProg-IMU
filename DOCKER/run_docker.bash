@@ -1,7 +1,19 @@
+
+
 xhost local:root
 #docker-compose -f docker-compose.yml up -d --build
 XAUTH=/tmp/.docker.xauth
 export DISPLAY=${DISPLAY:-:0}
+#!/bin/bash
+
+USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+PROJECT_DIR="$USER_HOME/Desktop/SenDiMoniProg-IMU"
+
+cd "$PROJECT_DIR"
+echo "🔄 Updating repository before mounting..."
+git pull origin main || git pull origin master
+echo "✅ Repository updated."
+
 docker run -it --rm \
     --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
