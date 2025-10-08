@@ -1,9 +1,7 @@
 xhost local:root
 #docker-compose -f docker-compose.yml up -d --build
-
 XAUTH=/tmp/.docker.xauth
-export DISPLAY=:0
-xhost +local:root
+export DISPLAY=${DISPLAY:-:0}
 docker run -it --rm \
     --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
