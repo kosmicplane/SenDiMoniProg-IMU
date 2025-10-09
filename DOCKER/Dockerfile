@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN mkdir -p /home/src
 WORKDIR /home
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
+RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git
 
 RUN echo "HOLA AMIGUITOS/ Hello little friends/ Ni Hao xiaopengyou/ Bonjour les petits amis/ Hallo kleine Freunde/ Ciao piccoli amici/ Привет маленькие друзья"
 

@@ -10,7 +10,7 @@ mkdir -p $XDG_RUNTIME_DIR
 chmod 700 $XDG_RUNTIME_DIR
 
 docker run -it --rm \
-    --network host \
+    --net=host \
     --device=/dev/dri:/dev/dri \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \

@@ -203,3 +203,13 @@ badkitten@badkitten:~$ x11vnc -display :0 -auth guess -forever -rfbauth ~/.vnc/p
     vncviewer 192.168.137.151:5900
 
 
+####FINAL SETUP
+
+1. cat /dev/rfcomm0 #TESTEAR PUERTO BLUETOOTH
+2. sudo ufw disable #AMBOS
+3. source /opt/ros/kilted/setup.bash
+    export ROS_DOMAIN_ID=42
+    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    python3 publisher_bt.py
+4. ros2 topic list
+5. apt update && apt install -y ros-kilted-rviz-imu-plugin
