@@ -1,0 +1,1 @@
+ax,ay,az,gx,gy,gz,mx,my,mz,pressure,altitude,temperature
