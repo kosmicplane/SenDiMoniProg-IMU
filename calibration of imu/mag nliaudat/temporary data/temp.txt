@@ -1,0 +1,79 @@
+Loading data from mag_out.txt (unit: microtesla)...
+Loaded 1041 data points
+
+First 5 raw values (microTesla):
+[[-74.536003  33.32     -89.656006]
+ [-74.536003  33.32     -89.656006]
+ [-77.420006  21.140001 -78.596001]
+ [-77.420006  21.140001 -78.596001]
+ [-76.594002  18.046001 -74.774002]]
+Calibrating with 1041 data points...
+Magnetic field strength: 1000 microTesla
+
+Calibration completed!
+Hard iron bias (microTesla):
+  X: -43.745391
+  Y: 23.743175
+  Z: -78.902552
+
+Soft iron transformation matrix:
+[[3.05799208e+01 4.25443944e-01 3.46583726e-04]
+ [4.25443944e-01 2.91284405e+01 7.08716064e-01]
+ [3.46583726e-04 7.08716064e-01 3.29914989e+01]]
+
+First 5 calibrated values (microTesla):
+[[ -937.50381159   258.2371582   -347.99597653]
+ [ -937.50381159   258.2371582   -347.99597653]
+ [-1030.87446837   -89.9357958      8.25700556]
+ [-1030.87446837   -89.9357958      8.25700556]
+ [-1006.93033043  -176.99906008   132.15800008]]
+
+==================================================
+C Code for calibration parameters:
+==================================================
+float hard_iron_bias_x = -43.745391;
+float hard_iron_bias_y = 23.743175;
+float hard_iron_bias_z = -78.902552;
+
+double soft_iron_bias_xx = 30.579921;
+double soft_iron_bias_xy = 0.425444;
+double soft_iron_bias_xz = 0.000347;
+
+double soft_iron_bias_yx = 0.425444;
+double soft_iron_bias_yy = 29.128440;
+double soft_iron_bias_yz = 0.708716;
+
+double soft_iron_bias_zx = 0.000347;
+double soft_iron_bias_zy = 0.708716;
+double soft_iron_bias_zz = 32.991499;
+==================================================
+
+==================================================
+JSON format for calibration parameters:
+==================================================
+{
+    "hard_iron_bias": [
+        -43.74539060715592,
+        23.74317478097699,
+        -78.90255232555984
+    ],
+    "soft_iron_matrix": [
+        [
+            30.579920752825593,
+            0.4254439438933585,
+            0.00034658372584121344
+        ],
+        [
+            0.4254439438933574,
+            29.128440454540506,
+            0.7087160639948805
+        ],
+        [
+            0.00034658372584152265,
+            0.7087160639948811,
+            32.991498882213875
+        ]
+    ],
+    "magnetic_field_strength": 1000,
+    "unit": "microtesla"
+}

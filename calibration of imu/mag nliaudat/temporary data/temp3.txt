@@ -1,0 +1,74 @@
+
+Calibration completed!
+Hard iron bias (µT):
+  X: -43.745391
+  Y: 23.743175
+  Z: -78.902552
+
+Soft iron transformation matrix:
+[[1.53487471e+00 2.13539843e-02 1.73958134e-05]
+ [2.13539843e-02 1.46202166e+00 3.55720464e-02]
+ [1.73958134e-05 3.55720464e-02 1.65591721e+00]]
+
+=== Calibration sanity ===
+Mean |raw|        : 102.91 µT
+Mean |calibrated| : 50.00 µT (target ~ 50.00 µT)
+Std  |calibrated| : 4.39 µT (smaller is better)
+NOTE: Magnitude off target or too spread. Recheck --field and coverage.
+
+First 5 calibrated values (microTesla):
+[[-47.05541586  12.9615013  -17.46669741]
+ [-47.05541586  12.9615013  -17.46669741]
+ [-51.74189823  -4.514079     0.4144376 ]
+ [-51.74189823  -4.514079     0.4144376 ]
+ [-50.54008832  -8.88397922   6.63330599]]
+
+==================================================
+C Code for calibration parameters:
+==================================================
+float hard_iron_bias_x = -43.745391;
+float hard_iron_bias_y = 23.743175;
+float hard_iron_bias_z = -78.902552;
+
+double soft_iron_bias_xx = 1.534875;
+double soft_iron_bias_xy = 0.021354;
+double soft_iron_bias_xz = 0.000017;
+
+double soft_iron_bias_yx = 0.021354;
+double soft_iron_bias_yy = 1.462022;
+double soft_iron_bias_yz = 0.035572;
+
+double soft_iron_bias_zx = 0.000017;
+double soft_iron_bias_zy = 0.035572;
+double soft_iron_bias_zz = 1.655917;
+==================================================
+
+==================================================
+JSON format for calibration parameters:
+==================================================
+{
+    "hard_iron_bias": [
+        -43.74539060715592,
+        23.74317478097699,
+        -78.90255232555984
+    ],
+    "soft_iron_matrix": [
+        [
+            1.5348747069295214,
+            0.021353984334243927,
+            1.7395813381168447e-05
+        ],
+        [
+            0.021353984334243868,
+            1.462021660139384,
+            0.035572046435727735
+        ],
+        [
+            1.7395813381183965e-05,
+            0.03557204643572776,
+            1.655917214021057
+        ]
+    ],
+    "magnetic_field_strength": 50.0,
+    "unit": "microtesla"
+}
