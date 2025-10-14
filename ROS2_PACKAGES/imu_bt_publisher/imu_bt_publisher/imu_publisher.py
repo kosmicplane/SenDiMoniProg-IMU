@@ -1,68 +1,61 @@
 #!/usr/bin/env python3
-import math, time
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
 from std_msgs.msg import Float32
-import serial, serial.serialutil
+import serial
+import time
 
-G_TO_MS2 = 9.80665
-DEG2RAD  = math.pi / 180.0
-UT_TO_T  = 1e-6
+G_TO_MS2 = 9.80665     # g → m/s²
+UT_TO_T  = 1e-6        # μT → T
 
-# CSV esperado (12 campos en este orden):
+# FORMATO NUEVO (12 campos, separados por coma):
 # ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps, mx_uT, my_uT, mz_uT, pressure(hPa), altitude_m, tempC
 
 class BluetoothIMUPublisher(Node):
-    def __init__(self, port="/dev/rfcomm0", baudrate=230400, frame_id="imu_link"):
+    def __init__(self):
         super().__init__('bluetooth_imu_publisher')
-        self.port = port
-        self.baud = baudrate
-        self.frame_id = frame_id
 
-        # Publishers
+        # --- Publishers ---
         self.imu_pub  = self.create_publisher(Imu,           'imu/data_raw',    10)
         self.mag_pub  = self.create_publisher(MagneticField, 'imu/mag',         10)
         self.pres_pub = self.create_publisher(FluidPressure, 'imu/pressure',    10)
         self.temp_pub = self.create_publisher(Temperature,   'imu/temperature', 10)
         self.alt_pub  = self.create_publisher(Float32,       'imu/altitude',    10)
 
+        # --- Serial (Bluetooth RFCOMM) ---
+        self.port = "/dev/rfcomm0"   # ajusta si usas otro
+        self.baudrate = 230400
         self.ser = None
-        self._connect_serial()
-        self.create_timer(0.02, self._read_tick)  # 50 Hz
+        self.connect_serial()
 
-    def _connect_serial(self):
-        while rclpy.ok() and self.ser is None:
+        self.timer = self.create_timer(0.02, self.read_data)  # ~50 Hz
+
+    def connect_serial(self):
+        while self.ser is None:
             try:
-                self.ser = serial.Serial(self.port, self.baud, timeout=0.05)
-                self.get_logger().info(f"✅ Connected to {self.port} @ {self.baud}")
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05)
+                self.get_logger().info(f"✅ Connected to {self.port}")
             except Exception as e:
-                self.get_logger().error(f"Serial open failed: {e}; retrying in 2s...")
+                self.get_logger().error(f"Retrying connection: {e}")
                 time.sleep(2)
 
-    def _read_tick(self):
-        if self.ser is None:
-            self._connect_serial(); return
+    def read_data(self):
         try:
             line = self.ser.readline().decode(errors='ignore').strip()
             if not line:
                 return
-            self._process_line(line)
-        except (serial.SerialException, serial.serialutil.SerialException) as e:
-            self.get_logger().warn(f"Serial error: {e}; reconnecting...")
-            try: self.ser.close()
-            except: pass
-            self.ser = None
-            time.sleep(0.5)
+            self.process_line(line)
         except Exception as e:
             self.get_logger().warn(f"Read error: {e}")
 
-    def _process_line(self, line: str):
-        parts = [p.strip() for p in line.split(',')]
-        if len(parts) != 12:
-            self.get_logger().debug(f"Ignoro línea (campos={len(parts)}): {line}")
-            return
+    def process_line(self, line: str):
         try:
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) != 12:
+                return  # línea incompleta o ruido
+
+            # Mapeo EXACTO según el nuevo formato
             ax_g, ay_g, az_g = map(float, parts[0:3])
             gx_dps, gy_dps, gz_dps = map(float, parts[3:6])
             mx_uT, my_uT, mz_uT = map(float, parts[6:9])
@@ -72,71 +65,53 @@ class BluetoothIMUPublisher(Node):
 
             now = self.get_clock().now().to_msg()
 
-            # IMU
-            imu = Imu()
-            imu.header.stamp = now
-            imu.header.frame_id = self.frame_id
-            imu.linear_acceleration.x = ax_g * G_TO_MS2
-            imu.linear_acceleration.y = ay_g * G_TO_MS2
-            imu.linear_acceleration.z = az_g * G_TO_MS2
-            imu.angular_velocity.x = gx_dps * DEG2RAD
-            imu.angular_velocity.y = gy_dps * DEG2RAD
-            imu.angular_velocity.z = gz_dps * DEG2RAD
-            imu.linear_acceleration_covariance[0] = -1.0
-            imu.angular_velocity_covariance[0] = -1.0
-            imu.orientation_covariance[0] = -1.0
-            self.imu_pub.publish(imu)
+            imu_msg = Imu()
+            imu_msg.header.frame_id = "imu_link"
+            imu_msg.header.stamp = now
+            # Aceleración en m/s²
+            imu_msg.linear_acceleration.x = ax_g * G_TO_MS2
+            imu_msg.linear_acceleration.y = ay_g * G_TO_MS2
+            imu_msg.linear_acceleration.z = az_g * G_TO_MS2
+            # Velocidad angular (se deja en deg/s como en tu código original)
+            imu_msg.angular_velocity.x = gx_dps
+            imu_msg.angular_velocity.y = gy_dps
+            imu_msg.angular_velocity.z = gz_dps
+            self.imu_pub.publish(imu_msg)
 
-            # Magnetómetro (T)
-            mag = MagneticField()
-            mag.header.stamp = now
-            mag.header.frame_id = self.frame_id
-            mag.magnetic_field.x = mx_uT * UT_TO_T
-            mag.magnetic_field.y = my_uT * UT_TO_T
-            mag.magnetic_field.z = mz_uT * UT_TO_T
-            mag.magnetic_field_covariance[0] = -1.0
-            self.mag_pub.publish(mag)
+            mag_msg = MagneticField()
+            mag_msg.header = imu_msg.header
+            mag_msg.magnetic_field.x = mx_uT * UT_TO_T
+            mag_msg.magnetic_field.y = my_uT * UT_TO_T
+            mag_msg.magnetic_field.z = mz_uT * UT_TO_T
+            self.mag_pub.publish(mag_msg)
 
-            # Presión (Pa) – si ya viene en Pa, quita *100
-            prs = FluidPressure()
-            prs.header.stamp = now
-            prs.header.frame_id = self.frame_id
-            prs.fluid_pressure = pressure_hpa * 100.0
-            prs.variance = 0.0
-            self.pres_pub.publish(prs)
+            pres_msg = FluidPressure()
+            pres_msg.header = imu_msg.header
+            pres_msg.fluid_pressure = pressure_hpa * 100.0  # hPa → Pa (si ya viene en Pa, quita *100)
+            self.pres_pub.publish(pres_msg)
 
-            # Temperatura (°C)
-            tt = Temperature()
-            tt.header.stamp = now
-            tt.header.frame_id = self.frame_id
-            tt.temperature = tempC
-            tt.variance = 0.0
-            self.temp_pub.publish(tt)
+            temp_msg = Temperature()
+            temp_msg.header = imu_msg.header
+            temp_msg.temperature = tempC
+            self.temp_pub.publish(temp_msg)
 
-            # Altitud (m)
-            alt = Float32()
-            alt.data = altitude_m
-            self.alt_pub.publish(alt)
+            alt_msg = Float32()
+            alt_msg.data = altitude_m
+            self.alt_pub.publish(alt_msg)
+
+            print(f"✅ Pub: a=({ax_g:.3f},{ay_g:.3f},{az_g:.3f}) g, "
+                  f"gyr=({gx_dps:.2f},{gy_dps:.2f},{gz_dps:.2f}) dps, "
+                  f"T={tempC:.2f}°C, alt={altitude_m:.2f} m")
 
         except Exception as e:
-            self.get_logger().debug(f"Parse error: {e} | line: {line}")
+            self.get_logger().warn(f"Parse error: {e}")
 
-def main():
-    import argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--port', default='/dev/rfcomm0')
-    ap.add_argument('--baudrate', type=int, default=230400)
-    ap.add_argument('--frame_id', default='imu_link')
-    args, ros_args = ap.parse_known_args()
+def main(args=None):
+    rclpy.init(args=args)
+    node = BluetoothIMUPublisher()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
-    rclpy.init(args=ros_args)
-    node = BluetoothIMUPublisher(args.port, args.baudrate, args.frame_id)
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        try:
-            if node.ser: node.ser.close()
-        except: pass
-        node.destroy_node()
+if __name__ == '__main__':
+    main()
