@@ -121,8 +121,8 @@ class BluetoothIMUPublisher(Node):
             gyr = np.radians(np.array([gx_dps, gy_dps, gz_dps]))  # rad/s
             mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T       # Tesla
 
-            self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
-
+            self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
+            
             # --- Build fused IMU message (orientation included) ---
             imu_fused = Imu()
             imu_fused.header = imu_raw.header
