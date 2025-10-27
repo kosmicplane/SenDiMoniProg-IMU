@@ -63,6 +63,7 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-geometry-msgs \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
+    pip3 install ahrs\
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------
