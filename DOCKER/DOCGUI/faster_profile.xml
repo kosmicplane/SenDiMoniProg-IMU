@@ -5,21 +5,10 @@
       <transport_id>udp_transport</transport_id>
       <type>UDPv4</type>
       <interfaceWhiteList>
-        <!-- Interfaces internas Docker -->
-        <address>127.0.0.1</address>
-        <address>172.17.0.1</address>
-
-        <!-- Interfaces Jetson -->
-        <address>192.168.55.100</address>
+        <!-- IP de la Nano -->
         <address>192.168.55.1</address>
-
-        <!-- Interfaces PC (GUI host) -->
-        <address>192.168.137.151</address>
-        <address>192.168.137.1</address>
-        <address>192.168.0.1</address> <!-- backup: LAN general -->
-
-        <!-- Broadcast universal (fallback) -->
-        <address>0.0.0.0</address>
+        <!-- IP del PC -->
+        <address>192.168.55.100</address>
       </interfaceWhiteList>
     </transport_descriptor>
   </transport_descriptors>

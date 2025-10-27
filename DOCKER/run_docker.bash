@@ -1,6 +1,6 @@
 
-export DISPLAY=:0
-xhost +local:root
+
+xhost local:root
 #docker-compose -f docker-compose.yml up -d --build
 XAUTH=/tmp/.docker.xauth
 export DISPLAY=${DISPLAY:-:0}
@@ -13,8 +13,7 @@ cd "$PROJECT_DIR"
 echo "🔄 Updating repository before mounting..."
 git pull origin main || git pull origin master
 echo "✅ Repository updated."
-sudo ufw disable
-echo "ufw disabled"
+
 docker run -it --rm \
     --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
