@@ -38,8 +38,11 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
     ros-kilted-rviz2 \
-    ros-kilted-rviz-default-plugins \
     ros-kilted-rviz-common \
+    ros-kilted-rviz-default-plugins \
+    ros-kilted-rviz-rendering \
+    ros-kilted-rviz-assimp-vendor \
+    ros-kilted-rviz-resource-interfaces \
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
     ros-kilted-rclpy \
@@ -76,19 +79,21 @@ RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS 2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
-unset GAZEBO_MASTER_URI\n\
-unset GAZEBO_RESOURCE_PATH\n\
-unset GZ_SIM_RESOURCE_PATH\n\
 cd /home/SenDiMoniProg-IMU\n\
 git pull\n\
+echo "Pull?..."\n\
 cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
 echo "📡 Launching IMU listener..."\n\
 python3 imu_listener.py &\n\
-sleep 2\n\
+sleep 3\n\
+echo "🧹 Killing auto-launched Gazebo viewers..."\n\
+pkill -f gz || true\n\
+pkill -f \"topic viewer\" || true\n\
+sleep 1\n\
 echo "🧭 Starting RViz2..."\n\
-rviz2\n\
+rviz2 &\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
-# ---------------------------------------------------------------
+
 # 🧾 8. Default command
 # ---------------------------------------------------------------
 CMD ["/entrypoint.sh"]

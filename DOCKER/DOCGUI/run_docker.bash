@@ -11,7 +11,7 @@ chmod 700 $XDG_RUNTIME_DIR
 
 # Check if GUI is accessible
 if ! xset q &>/dev/null; then
-  echo "❌ No se detecta entorno gráfico activo (DISPLAY=$DISPLAY)"
+  echo "❌ No graphic ENV (DISPLAY=$DISPLAY)"
   echo "   RViz no podrá iniciarse correctamente."
   exit 1
 fi
@@ -21,6 +21,8 @@ sudo -E docker run -it --rm \
     --device=/dev/dri:/dev/dri \
     --env="DISPLAY=$DISPLAY" \
     --env="QT_X11_NO_MITSHM=1" \
+    --env="LIBGL_DEBUG=verbose" \
+    --env="QT_DEBUG_PLUGINS=1" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume=$XAUTH:$XAUTH \
     --volume /usr/lib/x86_64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:ro \
