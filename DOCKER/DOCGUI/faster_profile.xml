@@ -4,12 +4,15 @@
     <transport_descriptor>
       <transport_id>udp_transport</transport_id>
       <type>UDPv4</type>
-      <interfaceWhiteList>
-        <!-- IP de la Nano -->
-        <address>192.168.55.1</address>
-        <!-- IP del PC -->
-        <address>192.168.55.100</address>
-      </interfaceWhiteList>
+        <interfaceWhiteList>
+          <!-- Interfaces visibles dentro del contenedor -->
+          <address>127.0.0.1</address>
+          <address>172.17.0.1</address>
+
+          <!-- Interfaces externas -->
+          <address>192.168.55.1</address>
+          <address>192.168.55.100</address>
+        </interfaceWhiteList>
     </transport_descriptor>
   </transport_descriptors>
 
