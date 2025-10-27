@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y \
     export GAZEBO_MASTER_URI=http://192.168.55.1:11345\
     export GAZEBO_RESOURCE_PATH=/usr/share/gz&&\
     export GZ_SIM_RESOURCE_PATH=/usr/share/gz
-    
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
 # Script de arranque
 RUN echo '#!/bin/bash\n\
 cd ..\
@@ -60,6 +60,5 @@ source /opt/ros/kilted/setup.bash\n\
 [ -f install/setup.bash ] && source install/setup.bash\n\
 apt-get update\n\
 echo "Done"\n\
-#pip3 install -r SenDiMoniProg-IMU/requirements.txt\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 CMD ["/entrypoint.sh"]
