@@ -79,3 +79,4 @@ sleep 1\n\
 echo "🧭 Starting RViz2..."\n\
 rviz2 &\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
