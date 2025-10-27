@@ -67,6 +67,5 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip3 install ahrs --break-system-packages
 # ---------------------------------------------------------
-# Default command: execute the entrypoint script
+# Create an entrypoint script that initializes ROS2 and runs your node
 # ---------------------------------------------------------
-ENTRYPOINT ["/entrypoint.sh"]
