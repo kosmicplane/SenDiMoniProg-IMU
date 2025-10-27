@@ -56,8 +56,6 @@ RUN export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && \
 # Entrypoint mejorado
 RUN echo '#!/bin/bash\n\
 source /opt/ros/kilted/setup.bash\n\
-echo "GAZEBO_MASTER_URI=$GAZEBO_MASTER_URI"\n\
-gz gui -s MinimalScene -s WorldControl -s WorldStats -s TopicViewer\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
