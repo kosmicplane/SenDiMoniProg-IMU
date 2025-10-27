@@ -73,7 +73,7 @@ RUN echo '#!/bin/bash\n\
 echo "🚀 Starting ROS2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
 cd /home/SenDiMoniProg-IMU\n\
-git pull\n\-
+git pull\n\
 # Default command: execute the entrypoint script
 # ---------------------------------------------------------
 ENTRYPOINT ["/entrypoint.sh"]
