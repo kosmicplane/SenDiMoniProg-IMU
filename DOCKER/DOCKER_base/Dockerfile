@@ -27,13 +27,11 @@ RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git
 # ---------------------------------------------------------
 # Persistent environment variables (for ROS2 and Gazebo)
 # ---------------------------------------------------------
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV ROS_DOMAIN_ID=42
 ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
-ENV GAZEBO_MASTER_URI=http://192.168.55.1:11345
-ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
-ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
-
+ENV export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ENV export ROS_DOMAIN_ID=42
+ENV export ROS_LOCALHOST_ONLY=0
 # ---------------------------------------------------------
 # Install Gazebo Harmonic and related drivers
 # ---------------------------------------------------------
