@@ -63,3 +63,6 @@ echo "Done"\n\
 #pip3 install -r SenDiMoniProg-IMU/requirements.txt\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 CMD ["/entrypoint.sh"]
+# Ejecutar automáticamente tu script
+CMD ["bash", "-c", "source /opt/ros/kilted/setup.bash && cd /home/SenDiMoniProg-IMU/ROS2_PACKAGES/imu_bt_publisher/imu_bt_publisher && python3 imu_publisher.py"]
+
