@@ -54,11 +54,10 @@ RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git && \
 # ---------------------------------------------------------------
 # 6. Environment
 # ---------------------------------------------------------------
-ENV ROS_DOMAIN_ID=42
 ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
-ENV export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ENV export ROS_DOMAIN_ID=42
-ENV export ROS_LOCALHOST_ONLY=0
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ENV ROS_DOMAIN_ID=42
+ENV ROS_LOCALHOST_ONLY=0
 
 # ---------------------------------------------------------------
 # 7. Entrypoint
