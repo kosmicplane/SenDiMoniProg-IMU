@@ -69,11 +69,19 @@ RUN pip3 install ahrs --break-system-packages
 # ---------------------------------------------------------
 # Create an entrypoint script that initializes ROS2 and runs your node
 # ---------------------------------------------------------
-RUN echo '#!/bin/bash\n\
+# Usar bash para que interprete -e y no se rompan los \n
+SHELL ["/bin/bash", "-c"]
+
+RUN echo -e '#!/bin/bash\n\
+set -e\n\
 echo "🚀 Starting ROS2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
+git config --global --add safe.directory /home/SenDiMoniProg-IMU\n\
 cd /home/SenDiMoniProg-IMU\n\
-git pull\n\
-# Default command: execute the entrypoint script
-# ---------------------------------------------------------
+git pull --ff-only || true\n\
+# si quieres lanzar tu nodo aquí, añade las líneas que tocan y termina con exec\n\
+# cd ROS2_PACKAGES/imu_bt_publisher/imu_bt_publisher\n\
+# exec python3 imu_publisher.py\n\
+exec bash\n' > /entrypoint.sh && chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
+
