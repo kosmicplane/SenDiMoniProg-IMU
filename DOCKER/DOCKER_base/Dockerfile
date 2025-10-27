@@ -63,9 +63,9 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-geometry-msgs \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
-    pip3 install ahrs --break-system-packages\
     && rm -rf /var/lib/apt/lists/*
 
+RUN pip3 install ahrs --break-system-packages
 # ---------------------------------------------------------
 # Create an entrypoint script that initializes ROS2 and runs your node
 # ---------------------------------------------------------
