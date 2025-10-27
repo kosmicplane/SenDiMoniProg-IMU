@@ -68,6 +68,7 @@ RUN echo -e '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS 2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
+echo "sourced ROS2 setup.bash"\n\
 cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
 echo "📡 Launching IMU listener..."\n\
 python3 imu_listener.py &\n\
