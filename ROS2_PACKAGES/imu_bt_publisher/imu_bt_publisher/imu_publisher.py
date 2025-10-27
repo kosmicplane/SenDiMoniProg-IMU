@@ -33,6 +33,17 @@ class BluetoothIMUPublisher(Node):
         self.baudrate = 230400
         self.ser = None
         self.connect_serial()
+        # --- Coordinate system correction (ROS ENU → Madgwick NED) ---
+        acc = np.array([ax_g, ay_g, az_g]) * G_TO_MS2
+        gyr = np.radians(np.array([gx_dps, gy_dps, gz_dps]))
+        mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T
+
+        # Convert from ENU → NED convention (Madgwick expects NED)
+        acc = np.array([ acc[1], acc[0], -acc[2] ])
+        gyr = np.array([ gyr[1], gyr[0], -gyr[2] ])
+        mag = np.array([ mag[1], mag[0], -mag[2] ])
+
+        self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
 
         # --- Madgwick filter initialization ---
         self.madgwick = Madgwick(beta=0.05, frequency=50.0)
