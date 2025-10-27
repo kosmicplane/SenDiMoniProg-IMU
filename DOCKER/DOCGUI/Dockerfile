@@ -62,7 +62,9 @@ RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas open
 # ---------------------------------------------------------------
 WORKDIR /home
 RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
-
+RUN cd /SenDiMoniProg-IMU
+RUN git pull
+RUN echo "✅ Project repository cloned and updated." 
 # ---------------------------------------------------------------
 # 🌍 6. Environment variables (ROS 2 & Gazebo runtime)
 # ---------------------------------------------------------------
@@ -78,10 +80,9 @@ ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_p
 RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS 2 environment..."\n\
+cd ..\n\
+cd ..\n\
 source /opt/ros/kilted/setup.bash\n\
-cd /home/SenDiMoniProg-IMU\n\
-git pull\n\
-echo "Pull?..."\n\
 cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
 echo "📡 Launching IMU listener..."\n\
 python3 imu_listener.py &\n\
