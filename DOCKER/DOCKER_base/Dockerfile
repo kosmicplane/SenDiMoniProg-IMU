@@ -76,6 +76,7 @@ RUN echo -e '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
+echo "sourced ROS2 setup.bash"\n\
 git config --global --add safe.directory /home/SenDiMoniProg-IMU\n\
 cd /home/SenDiMoniProg-IMU\n\
 git pull --ff-only || true\n\
