@@ -26,4 +26,4 @@ sudo -E docker run -it --rm \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume=$XAUTH:$XAUTH \
     --volume /usr/lib/x86_64-linux-gnu/dri:/usr/lib/x86_64-linux-gnu/dri:ro \
-    godkitten:latest
+    goodkitten:latest
