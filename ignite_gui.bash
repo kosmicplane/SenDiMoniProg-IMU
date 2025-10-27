@@ -1,4 +1,4 @@
-RUN echo '#!/bin/bash\n\
+echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS 2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
