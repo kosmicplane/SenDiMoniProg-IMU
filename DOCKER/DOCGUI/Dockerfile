@@ -1,27 +1,21 @@
 # ===============================================================
 # 🛰️ ROS 2 Kilted (Noble) + RViz + IMU Data Logger
-# This image launches RViz and automatically runs your IMU listener
-# Located in: /home/SenDiMoniProg-IMU/Data_Proccesing/imu_listener.py
 # ===============================================================
 
-# --- Base image: ROS 2 Kilted perception stack ---
 FROM ros:kilted-perception-noble
 
 # ---------------------------------------------------------------
-# 🔧 1. Basic tools and ROS 2 build dependencies
+# 1. Dependencies
 # ---------------------------------------------------------------
 RUN apt-get update && apt-get install -y \
-    lsb-release gnupg2 curl wget \
-    python3-pip \
-    python3-colcon-common-extensions \
-    git vim tmux \
+    lsb-release gnupg2 curl wget python3-pip \
+    python3-colcon-common-extensions git vim tmux \
     mesa-utils mesa-vulkan-drivers vulkan-tools \
     libgl1-mesa-dri libglx-mesa0 libegl-mesa0 libgbm1 \
-    libglfw3 libxrandr2 \
-    && rm -rf /var/lib/apt/lists/*
+    libglfw3 libxrandr2 && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------
-# 🧩 2. Gazebo (Ignition / Harmonic)
+# 2. Gazebo
 # ---------------------------------------------------------------
 RUN mkdir -p /etc/apt/keyrings && \
     curl -sSL http://packages.osrfoundation.org/gazebo.gpg | \
@@ -32,69 +26,39 @@ RUN mkdir -p /etc/apt/keyrings && \
     apt-get update && apt-get install -y gz-harmonic
 
 # ---------------------------------------------------------------
-# 🌈 3. ROS–Gazebo bridge, RViz, and message packages
+# 3. ROS–Gazebo + RViz
 # ---------------------------------------------------------------
 RUN apt-get update && apt-get install -y \
-    ros-kilted-ros-gz-bridge \
-    ros-kilted-ros-gz-sim \
-    ros-kilted-rviz2 \
-    ros-kilted-rviz-common \
-    ros-kilted-rviz-default-plugins \
-    ros-kilted-rviz-rendering \
-    ros-kilted-rviz-assimp-vendor \
+    ros-kilted-ros-gz-bridge ros-kilted-ros-gz-sim \
+    ros-kilted-rviz2 ros-kilted-rviz-common ros-kilted-rviz-default-plugins \
+    ros-kilted-rviz-rendering ros-kilted-rviz-assimp-vendor \
     ros-kilted-rviz-resource-interfaces \
-    ros-kilted-sensor-msgs-py \
-    ros-kilted-geometry-msgs \
-    ros-kilted-rclpy \
-    ros-kilted-rqt \
-    ros-kilted-rqt-common-plugins \
-    netcat-traditional iputils-ping net-tools iproute2 \
-    python3-serial \
-    && rm -rf /var/lib/apt/lists/*
+    ros-kilted-sensor-msgs-py ros-kilted-geometry-msgs ros-kilted-rclpy \
+    ros-kilted-rqt ros-kilted-rqt-common-plugins \
+    netcat-traditional iputils-ping net-tools iproute2 python3-serial && \
+    rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------
-# 🧠 4. Python libraries (ROS nodes and IMU processing)
+# 4. Python libs
 # ---------------------------------------------------------------
 RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
 
 # ---------------------------------------------------------------
-# 📦 5. Clone your project repository
+# 5. Clone project
 # ---------------------------------------------------------------
 WORKDIR /home
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
-RUN cd /SenDiMoniProg-IMU
-RUN git pull
-RUN echo "✅ Project repository cloned and updated." 
-# ---------------------------------------------------------------
-# 🌍 6. Environment variables (ROS 2 & Gazebo runtime)
-# ---------------------------------------------------------------
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ENV ROS_DOMAIN_ID=42
-ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
-# ---------------------------------------------------------------
-# 🚀 7. Entrypoint script
-#    - Sources ROS 2 environment
-#    - Launches RViz
-#    - Runs the IMU listener node automatically
-# ---------------------------------------------------------------
-RUN echo '#!/bin/bash\n\
-set -e\n\
-echo "🚀 Starting ROS 2 environment..."\n\
-cd ..\n\
-cd ..\n\
-source /opt/ros/kilted/setup.bash\n\
-cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
-echo "📡 Launching IMU listener..."\n\
-python3 imu_listener.py &\n\
-sleep 3\n\
-echo "🧹 Killing auto-launched Gazebo viewers..."\n\
-pkill -f gz || true\n\
-pkill -f \"topic viewer\" || true\n\
-sleep 1\n\
-echo "🧭 Starting RViz2..."\n\
-rviz2 &\n\
-exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
+RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git && \
+    cd SenDiMoniProg-IMU && git pull && \
+    echo "✅ Project repository cloned and updated."
 
-# 🧾 8. Default command
 # ---------------------------------------------------------------
-CMD ["/entrypoint.sh"]
+# 6. Environment
+# ---------------------------------------------------------------
+ENV ROS_DOMAIN_ID=42
+#ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
+ENV RMW_IMPLEMENTATION = rmw_fastrtps_cpp
+ENV ROS_DOMAIN_ID = 0
+# ---------------------------------------------------------------
+# 7. Entrypoint
+# ---------------------------------------------------------------
+SHELL ["/bin/bash", "-c"]
