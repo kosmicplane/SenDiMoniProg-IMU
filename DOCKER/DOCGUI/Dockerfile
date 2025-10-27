@@ -79,8 +79,6 @@ if [ ! -f "$FASTDDS_DEFAULT_PROFILES_FILE" ]; then\n\
 else\n\
   head -n 10 "$FASTDDS_DEFAULT_PROFILES_FILE"\n\
 fi\n\
-cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
-python3 imu_listener.py &\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
