@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from sensor_msgs.msg import Imu
 import csv
 import os
 from datetime import datetime
@@ -10,46 +10,43 @@ class IMURawLogger(Node):
     def __init__(self):
         super().__init__('imu_raw_logger')
 
-        # --- CSV setup ---
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = f"/root/data/imu_raw_{timestamp}.csv"
         os.makedirs(os.path.dirname(self.filename), exist_ok=True)
         self.file = open(self.filename, 'w', newline='')
         self.writer = csv.writer(self.file)
-
-        # --- CSV header ---
         self.writer.writerow([
-            "ax_g", "ay_g", "az_g",
-            "gx_dps", "gy_dps", "gz_dps",
-            "mx_uT", "my_uT", "mz_uT",
-            "pressure_hPa", "altitude_m", "tempC"
+            "ax_m_s2", "ay_m_s2", "az_m_s2",
+            "gx_rad_s", "gy_rad_s", "gz_rad_s",
+            "orientation_x", "orientation_y", "orientation_z", "orientation_w"
         ])
         self.file.flush()
 
-        # --- ROS subscriber ---
         self.subscription = self.create_subscription(
-            String,
-            '/imu/raw_data',  # debe coincidir con el topic del publisher
+            Imu,
+            '/imu/data_raw',
             self.callback,
             10
         )
 
-        self.get_logger().info(f"📡 Listening to /imu/raw_data — saving to {self.filename}")
+        self.get_logger().info(f"📡 Listening to /imu/data_raw — saving to {self.filename}")
 
     def callback(self, msg):
-        """Cada mensaje es una línea CSV cruda enviada por el Jetson."""
-        line = msg.data.strip()
-        if not line:
-            return
+        ax = msg.linear_acceleration.x
+        ay = msg.linear_acceleration.y
+        az = msg.linear_acceleration.z
+        gx = msg.angular_velocity.x
+        gy = msg.angular_velocity.y
+        gz = msg.angular_velocity.z
+        ox = msg.orientation.x
+        oy = msg.orientation.y
+        oz = msg.orientation.z
+        ow = msg.orientation.w
 
-        # Dividir la línea por comas y escribir cada valor en su columna
-        parts = [x.strip() for x in line.split(',')]
-        if len(parts) == 12:
-            self.writer.writerow(parts)
-            self.file.flush()
-            print(f"📥 Saved row: {parts}")
-        else:
-            self.get_logger().warn(f"Ignored malformed line ({len(parts)} fields): {line}")
+        self.writer.writerow([ax, ay, az, gx, gy, gz, ox, oy, oz, ow])
+        self.file.flush()
+
+        print(f"📥 IMU → ax:{ax:.3f}, ay:{ay:.3f}, az:{az:.3f}, gx:{gx:.3f}, gy:{gy:.3f}, gz:{gz:.3f}", flush=True)
 
     def destroy_node(self):
         super().destroy_node()

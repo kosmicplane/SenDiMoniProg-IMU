@@ -81,8 +81,6 @@ else\n\
 fi\n\
 cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
 python3 imu_listener.py &\n\
-sleep 3\n\
-rviz2 &\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
