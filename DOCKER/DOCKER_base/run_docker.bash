@@ -1,6 +1,6 @@
 
-
-xhost local:root
+export DISPLAY=:0
+xhost +local:root
 #docker-compose -f docker-compose.yml up -d --build
 XAUTH=/tmp/.docker.xauth
 export DISPLAY=${DISPLAY:-:0}

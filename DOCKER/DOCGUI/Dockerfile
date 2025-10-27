@@ -66,10 +66,6 @@ RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV ROS_DOMAIN_ID=42
 ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
-ENV GAZEBO_MASTER_URI=http://192.168.55.1:11345
-ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
-ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
-
 # ---------------------------------------------------------------
 # 🚀 7. Entrypoint script
 #    - Sources ROS 2 environment
@@ -80,16 +76,18 @@ RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "🚀 Starting ROS 2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
+unset GAZEBO_MASTER_URI\n\
+unset GAZEBO_RESOURCE_PATH\n\
+unset GZ_SIM_RESOURCE_PATH\n\
 cd /home/SenDiMoniProg-IMU\n\
 git pull\n\
-cd /Data_Proccesing\n\
+cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
 echo "📡 Launching IMU listener..."\n\
 python3 imu_listener.py &\n\
 sleep 2\n\
 echo "🧭 Starting RViz2..."\n\
 rviz2\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
-
 # ---------------------------------------------------------------
 # 🧾 8. Default command
 # ---------------------------------------------------------------
