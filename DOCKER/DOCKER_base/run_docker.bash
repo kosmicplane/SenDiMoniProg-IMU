@@ -13,7 +13,7 @@ cd "$PROJECT_DIR"
 echo "🔄 Updating repository before mounting..."
 git pull origin main || git pull origin master
 echo "✅ Repository updated."
-
+sudo ufw disable
 docker run -it --rm \
     --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
