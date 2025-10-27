@@ -44,12 +44,11 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
 
 # ---------------------------------------------------------------
-# 5. Clone project
+# 5. Clone project (placeholder repo, real sync on runtime)
 # ---------------------------------------------------------------
 WORKDIR /home
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git && \
-    cd SenDiMoniProg-IMU && git pull && \
-    echo "✅ Project repository cloned and updated."
+RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
+# (No git pull here — repo will update dynamically at runtime)
 
 # ---------------------------------------------------------------
 # 6. Environment
@@ -60,23 +59,30 @@ ENV ROS_DOMAIN_ID=42
 ENV ROS_LOCALHOST_ONLY=0
 
 # ---------------------------------------------------------------
-# 7. Entrypoint
+# 7. Entrypoint — runtime sync ensures latest faster_profile.xml
 # ---------------------------------------------------------------
 SHELL ["/bin/bash", "-c"]
 RUN echo -e '#!/bin/bash\n\
 set -e\n\
-echo "🚀 Starting ROS 2 environment..."\n\
 source /opt/ros/kilted/setup.bash\n\
-echo " °°°°°°°°°°°°°°°°°°°°°°sourced ROS2 setup.bash"\n\
+echo "🔄 Syncing repository with origin/main..."\n\
+cd /home/SenDiMoniProg-IMU\n\
+git config --global --add safe.directory /home/SenDiMoniProg-IMU\n\
+if git fetch origin main &>/dev/null; then\n\
+  git reset --hard origin/main && echo "✅ Repository updated to latest commit."\n\
+else\n\
+  echo "⚠️ Could not reach remote, using cached local version."\n\
+fi\n\
+echo "🌐 FASTDDS profile: $FASTDDS_DEFAULT_PROFILES_FILE"\n\
+if [ ! -f "$FASTDDS_DEFAULT_PROFILES_FILE" ]; then\n\
+  echo "❌ FASTDDS profile missing. Check repo sync or volume mount."\n\
+else\n\
+  head -n 10 "$FASTDDS_DEFAULT_PROFILES_FILE"\n\
+fi\n\
 cd /home/SenDiMoniProg-IMU/Data_Proccesing\n\
-echo "📡 Launching IMU listener..."\n\
 python3 imu_listener.py &\n\
 sleep 3\n\
-echo "🧹 Killing auto-launched Gazebo viewers..."\n\
-pkill -f gz || true\n\
-pkill -f \"topic viewer\" || true\n\
-sleep 1\n\
-echo "🧭 Starting RViz2..."\n\
 rviz2 &\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
