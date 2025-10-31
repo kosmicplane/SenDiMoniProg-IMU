@@ -65,7 +65,7 @@ void loop() {
   mag.read();
   float pressure = ps.readPressureMillibars();
   float temperature = ps.readTemperatureC();
-  float altitude = ps.pressureToAltitudeMeters(pressure, 1007.9f); // 1007.9hPa 為當地海平面氣壓 每天可能會不一樣 需要校正
+  float altitude = ps.pressureToAltitudeMeters(pressure, 1016.9f); // 1007.9hPa 為當地海平面氣壓 每天可能會不一樣 需要校正
 
  // Convert raw values to physical units
   float ax = imu.a.x * 0.000122f;   // g

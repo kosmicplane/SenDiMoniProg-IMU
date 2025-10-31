@@ -1,166 +1,244 @@
-import serial
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.widgets import Button
-from collections import deque
-from multiprocessing import Process, Queue, Event
-import matplotlib
 import time
+import serial
+import matplotlib
+matplotlib.use("TkAgg")  # 很重要：避免某些環境互動視窗卡死
+import matplotlib.pyplot as plt
+from collections import deque
 
-# --- Matplotlib Configuration ---
-matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
-matplotlib.rcParams['axes.unicode_minus'] = False 
+# ========================
+# 使用者參數
+# ========================
+PORT = "/dev/ttyUSB0"   # 改成正確的port，例如 /dev/ttyUSB1, /dev/ttyACM0, COM5...
+BAUD = 230400
+TIMEOUT = 1.0
+WINDOW_SIZE = 200
 
-# --- Data Collector Function ---
-def data_collector(port_name, baud_rate, data_queue, stop_event):
+# ========================
+# 緩衝區
+# ========================
+t_buf   = deque(maxlen=WINDOW_SIZE)
+ax_buf  = deque(maxlen=WINDOW_SIZE)
+ay_buf  = deque(maxlen=WINDOW_SIZE)
+az_buf  = deque(maxlen=WINDOW_SIZE)
+
+gx_buf  = deque(maxlen=WINDOW_SIZE)
+gy_buf  = deque(maxlen=WINDOW_SIZE)
+gz_buf  = deque(maxlen=WINDOW_SIZE)
+
+mx_buf  = deque(maxlen=WINDOW_SIZE)
+my_buf  = deque(maxlen=WINDOW_SIZE)
+mz_buf  = deque(maxlen=WINDOW_SIZE)
+
+alt_buf = deque(maxlen=WINDOW_SIZE)
+
+t0 = None  # 開始時間 (第一筆資料時間)
+last_print_time = 0  # 用來降低print頻率，避免洗螢幕太快
+
+
+def parse_line(line):
     """
-    Responsible for reading data from the serial port and putting it into a queue.
-    This function runs in a separate process.
+    嘗試解析你的 IMU 字串。
+    預期格式:
+    A[g]:ax,ay,az|G[rad/s]:gx,gy,gz|M[mG]:mx,my,mz|...|...|Alt[m]:alt
+    回傳 tuple 或 None
     """
-    ser = None
+    line = line.strip()
+    if not line.startswith("A[g]:"):
+        return None
+
+    parts = line.split("|")
+    if len(parts) < 6:
+        return None
+
     try:
-        ser = serial.Serial('/dev/ttyUSB0', 230400, timeout=1)
-        print(f"Serial port {port_name} opened successfully.")
-    except serial.SerialException as e:
-        print(f"Could not open serial port {port_name}: {e}")
-        stop_event.set()
+        a_vals = parts[0].replace("A[g]:", "").split(",")
+        ax = float(a_vals[0])
+        ay = float(a_vals[1])
+        az = float(a_vals[2])
+
+        g_vals = parts[1].replace("G[rad/s]:", "").split(",")
+        gx = float(g_vals[0])
+        gy = float(g_vals[1])
+        gz = float(g_vals[2])
+
+        m_vals = parts[2].replace("M[mG]:", "").split(",")
+        mx = float(m_vals[0])
+        my = float(m_vals[1])
+        mz = float(m_vals[2])
+
+        alt_str = parts[5].replace("Alt[m]:", "").strip()
+        alt = float(alt_str)
+
+        return ax, ay, az, gx, gy, gz, mx, my, mz, alt
+
+    except Exception as e:
+        print("[PARSE EXCEPTION]", e)
+        return None
+
+
+def autoscale_axis(ax, lists, pad_ratio=0.1, fallback=(-1, 1)):
+    vals = []
+    for arr in lists:
+        vals.extend(arr)
+    if not vals:
+        ax.set_ylim(fallback[0], fallback[1])
         return
+    vmin = min(vals)
+    vmax = max(vals)
+    if vmin == vmax:
+        ax.set_ylim(vmin - 1, vmax + 1)
+    else:
+        pad = (vmax - vmin) * pad_ratio
+        ax.set_ylim(vmin - pad, vmax + pad)
 
-    while not stop_event.is_set():
-        try:
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if line.startswith('A[g]:'):
-                parts = line.split('|')
-                a_vals = parts[0].replace('A[g]:', '').split(',')
-                g_vals = parts[1].replace('G[rad/s]:', '').split(',')
-                m_vals = parts[2].replace('M[mG]:', '').split(',')
-                alt_val = parts[5].replace('Alt[m]:', '').strip()
 
-                parsed_data = {
-                    'ax': float(a_vals[0]), 'ay': float(a_vals[1]), 'az': float(a_vals[2]),
-                    'gx': float(g_vals[0]), 'gy': float(g_vals[1]), 'gz': float(g_vals[2]),
-                    'mx': float(m_vals[0]), 'my': float(m_vals[1]), 'mz': float(m_vals[2]),
-                    'alt': float(alt_val),
-                }
-                data_queue.put(parsed_data)
+# === Matplotlib figure ===
+plt.ion()
+fig, axes = plt.subplots(4, 1, figsize=(10, 10))
+fig.canvas.manager.set_window_title("IMU Debug Real-Time Plot")
 
-        except (serial.SerialException, ValueError) as e:
-            print(f"Data read or parse error: {e}")
-            break
-        
-    if ser and ser.is_open:
-        ser.close()
-    print("Data collection process has stopped.")
+ax_acc = axes[0]
+line_ax, = ax_acc.plot([0], [0], label="Ax")
+line_ay, = ax_acc.plot([0], [0], label="Ay")
+line_az, = ax_acc.plot([0], [0], label="Az")
+ax_acc.set_ylabel("Accel (g)")
+ax_acc.set_title("Accelerometer")
+ax_acc.grid(True)
+ax_acc.legend(loc="upper left")
 
-# --- GUI and Plotting Function ---
-def gui_plotter(data_queue, stop_event):
-    """
-    Responsible for plotting the charts and handling GUI interactions.
-    This function runs in the main process.
-    """
-    window = 100
-    ax_data = deque([0] * window, maxlen=window)
-    ay_data = deque([0] * window, maxlen=window)
-    az_data = deque([0] * window, maxlen=window)
-    gx_data = deque([0] * window, maxlen=window)
-    gy_data = deque([0] * window, maxlen=window)
-    gz_data = deque([0] * window, maxlen=window)
-    mx_data = deque([0] * window, maxlen=window)
-    my_data = deque([0] * window, maxlen=window)
-    mz_data = deque([0] * window, maxlen=window)
-    alt_data = deque([0] * window, maxlen=window)
+ax_gyro = axes[1]
+line_gx, = ax_gyro.plot([0], [0], label="Gx")
+line_gy, = ax_gyro.plot([0], [0], label="Gy")
+line_gz, = ax_gyro.plot([0], [0], label="Gz")
+ax_gyro.set_ylabel("Gyro (rad/s)")
+ax_gyro.set_title("Gyroscope")
+ax_gyro.grid(True)
+ax_gyro.legend(loc="upper left")
 
-    fig, axs = plt.subplots(4, 1, figsize=(8, 10))
-    fig.canvas.manager.set_window_title('IMU Real-time Monitor')
+ax_mag = axes[2]
+line_mx, = ax_mag.plot([0], [0], label="Mx")
+line_my, = ax_mag.plot([0], [0], label="My")
+line_mz, = ax_mag.plot([0], [0], label="Mz")
+ax_mag.set_ylabel("Mag (mG)")
+ax_mag.set_title("Magnetometer")
+ax_mag.grid(True)
+ax_mag.legend(loc="upper left")
 
-    l_ax, = axs[0].plot(ax_data, label='Ax')
-    l_ay, = axs[0].plot(ay_data, label='Ay')
-    l_az, = axs[0].plot(az_data, label='Az')
-    axs[0].legend(loc='upper left')
-    axs[0].set_title('Accelerometer (g)')
-    axs[0].set_ylim(-5, 5)
+ax_alt = axes[3]
+line_alt, = ax_alt.plot([0], [0], label="Alt")
+ax_alt.set_ylabel("Alt (m)")
+ax_alt.set_xlabel("Time (s)")
+ax_alt.set_title("Altitude")
+ax_alt.grid(True)
+ax_alt.legend(loc="upper left")
 
-    l_gx, = axs[1].plot(gx_data, label='Gx')
-    l_gy, = axs[1].plot(gy_data, label='Gy')
-    l_gz, = axs[1].plot(gz_data, label='Gz')
-    axs[1].legend(loc='upper left')
-    axs[1].set_title('Gyroscope (rad/s)')
-    axs[1].set_ylim(-10, 10)
+# === Serial open ===
+print(f"[MAIN] Opening serial {PORT} @ {BAUD} ...")
+ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+time.sleep(2.0)
+print("[MAIN] Serial opened.")
 
-    l_mx, = axs[2].plot(mx_data, label='Mx')
-    l_my, = axs[2].plot(my_data, label='My')
-    l_mz, = axs[2].plot(mz_data, label='Mz')
-    axs[2].legend(loc='upper left')
-    axs[2].set_title('Magnetometer (mG)')
-    axs[2].set_ylim(-1000, 1000)
+try:
+    while True:
+        raw = ser.readline().decode("utf-8", errors="ignore").strip()
 
-    l_alt, = axs[3].plot(alt_data, label='Altitude')
-    axs[3].legend(loc='upper left')
-    axs[3].set_title('Altitude (m)')
-    axs[3].set_ylim(100, 200)
+        now_sys = time.time()
 
-    # Quit button
-    ax_btn_quit = plt.axes([0.4, 0.05, 0.2, 0.05])
-    btn_quit = Button(ax_btn_quit, 'Quit')
+        if raw == "":
+            # 沒讀到任何資料（timeout)
+            # 我們每0.5秒提醒一次
+            if now_sys - last_print_time > 0.5:
+                print("[DEBUG] no data...")
+                last_print_time = now_sys
 
-    def quit_program(event):
-        stop_event.set()
-        print('Quit signal sent, exiting...')
-    
-    btn_quit.on_clicked(quit_program)
+            plt.pause(0.001)
+            continue
 
-    def update_plot(frame):
-        """
-        This function is called periodically by FuncAnimation to update plot data.
-        """
-        while not data_queue.empty():
-            try:
-                data = data_queue.get_nowait()
-                ax_data.append(data['ax'])
-                ay_data.append(data['ay'])
-                az_data.append(data['az'])
-                gx_data.append(data['gx'])
-                gy_data.append(data['gy'])
-                gz_data.append(data['gz'])
-                mx_data.append(data['mx'])
-                my_data.append(data['my'])
-                mz_data.append(data['mz'])
-                alt_data.append(data['alt'])
+        # 印出原始字串 (低頻率)
+        if now_sys - last_print_time > 0.5:
+            print("[RAW]", raw)
+            last_print_time = now_sys
 
-            except Exception as e:
-                print(f"Data update error: {e}")
-                
-        l_ax.set_ydata(ax_data)
-        l_ay.set_ydata(ay_data)
-        l_az.set_ydata(az_data)
-        l_gx.set_ydata(gx_data)
-        l_gy.set_ydata(gy_data)
-        l_gz.set_ydata(gz_data)
-        l_mx.set_ydata(mx_data)
-        l_my.set_ydata(my_data)
-        l_mz.set_ydata(mz_data)
-        l_alt.set_ydata(alt_data)
-        
-        # Return all artist objects that need to be updated
-        return l_ax, l_ay, l_az, l_gx, l_gy, l_gz, l_mx, l_my, l_mz, l_alt,
+        parsed = parse_line(raw)
 
-    # Use FuncAnimation to drive the plot updates
-    ani = animation.FuncAnimation(fig, update_plot, interval=50, blit=True, cache_frame_data=False)
+        if parsed is None:
+            # 格式不符合
+            # 我們標記失敗一次，幫你知道是不是parser問題
+            print("[PARSE FAIL]")
+            plt.pause(0.001)
+            continue
+        else:
+            # 有成功解析資料
+            ax_val, ay_val, az_val, gx_val, gy_val, gz_val, mx_val, my_val, mz_val, alt_val = parsed
+            # 只偶爾印（避免洗爆）
+            # 這行會讓你確認數值是不是固定一樣
+            print("[PARSED OK] ax=", ax_val, "ay=", ay_val, "alt=", alt_val)
 
+        # 時間戳 (t=0 為第一筆成功解析的資料時間)
+        if t0 is None:
+            t0 = now_sys
+        t_now = now_sys - t0
+
+        # push data
+        t_buf.append(t_now)
+        ax_buf.append(ax_val); ay_buf.append(ay_val); az_buf.append(az_val)
+        gx_buf.append(gx_val); gy_buf.append(gy_val); gz_buf.append(gz_val)
+        mx_buf.append(mx_val); my_buf.append(my_val); mz_buf.append(mz_val)
+        alt_buf.append(alt_val)
+
+        # turn deque -> list for plotting
+        t_list   = list(t_buf)
+        ax_list  = list(ax_buf)
+        ay_list  = list(ay_buf)
+        az_list  = list(az_buf)
+        gx_list  = list(gx_buf)
+        gy_list  = list(gy_buf)
+        gz_list  = list(gz_buf)
+        mx_list  = list(mx_buf)
+        my_list  = list(my_buf)
+        mz_list  = list(mz_buf)
+        alt_list = list(alt_buf)
+
+        # update each line's x and y
+        line_ax.set_xdata(t_list); line_ax.set_ydata(ax_list)
+        line_ay.set_xdata(t_list); line_ay.set_ydata(ay_list)
+        line_az.set_xdata(t_list); line_az.set_ydata(az_list)
+
+        line_gx.set_xdata(t_list); line_gx.set_ydata(gx_list)
+        line_gy.set_xdata(t_list); line_gy.set_ydata(gy_list)
+        line_gz.set_xdata(t_list); line_gz.set_ydata(gz_list)
+
+        line_mx.set_xdata(t_list); line_mx.set_ydata(mx_list)
+        line_my.set_xdata(t_list); line_my.set_ydata(my_list)
+        line_mz.set_xdata(t_list); line_mz.set_ydata(mz_list)
+
+        line_alt.set_xdata(t_list); line_alt.set_ydata(alt_list)
+
+        # x 軸範圍 = 目前視窗
+        if len(t_list) >= 2:
+            t_min = t_list[0]
+            t_max = t_list[-1]
+            ax_acc.set_xlim(t_min, t_max)
+            ax_gyro.set_xlim(t_min, t_max)
+            ax_mag.set_xlim(t_min, t_max)
+            ax_alt.set_xlim(t_min, t_max)
+
+        # y 軸自動縮放
+        autoscale_axis(ax_acc, [ax_buf, ay_buf, az_buf], fallback=(-5, 5))
+        autoscale_axis(ax_gyro, [gx_buf, gy_buf, gz_buf], fallback=(-10, 10))
+        autoscale_axis(ax_mag, [mx_buf, my_buf, mz_buf], fallback=(-1000, 1000))
+        autoscale_axis(ax_alt, [alt_buf], fallback=(0, 2))
+
+        # redraw
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        plt.pause(0.001)
+
+except KeyboardInterrupt:
+    print("[MAIN] Ctrl+C stop")
+
+finally:
+    ser.close()
+    plt.ioff()
     plt.show()
-
-    print("GUI process has stopped.")
-
-# --- Main Program Entry ---
-if __name__ == '__main__':
-    data_queue = Queue()
-    stop_event = Event()
-
-    collector_process = Process(target=data_collector, args=('/dev/ttyUSB0', 230400, data_queue, stop_event))
-    collector_process.daemon = True
-    collector_process.start()
-
-    gui_plotter(data_queue, stop_event)
-
-    collector_process.join()
-    print("Program has fully exited.")
+    print("[MAIN] done")
