@@ -45,6 +45,7 @@ RUN apt-get update && apt-get install -y \
     re \
     mesa-vulkan-drivers \
     python3-serial \
+    ros-kilted-rclpy\
     vulkan-tools \
     libgl1-mesa-dri \
     libglx-mesa0 \
