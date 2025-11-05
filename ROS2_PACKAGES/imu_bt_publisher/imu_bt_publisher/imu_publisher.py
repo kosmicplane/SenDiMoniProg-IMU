@@ -34,12 +34,9 @@ class BluetoothIMUPublisher(Node):
         self.ser = None
         self.connect_serial()
 
-        self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
-
         # --- Madgwick filter initialization ---
         self.madgwick = Madgwick(beta=0.05, frequency=50.0)
         self.q = np.array([1.0, 0.0, 0.0, 0.0])  # initial quaternion [w, x, y, z]
-
         # Timer ~50 Hz
         self.timer = self.create_timer(0.02, self.read_data)
 
@@ -76,7 +73,7 @@ class BluetoothIMUPublisher(Node):
             pressure_hpa = float(parts[9])
             altitude_m   = float(parts[10])
             tempC        = float(parts[11])
-
+            
             now = self.get_clock().now().to_msg()
 
             # --- Build raw IMU message (no orientation) ---
