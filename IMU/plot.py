@@ -1,244 +1,295 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+即時顯示 IMU 九軸 + 海拔(Altitude)：
+- 子圖1：ax, ay, az（g）
+- 子圖2：gx, gy, gz（°/s 或 rad/s，依你的輸出單位）
+- 子圖3：mx, my, mz（uT 或無單位）
+- 子圖4：altitude（m；來自輸出第 12 欄）
+
+重點：
+- 背景執行緒讀取序列埠，主執行緒只負責繪圖（更順）
+- X 軸固定顯示最近 WINDOW_SEC 秒，會跟著時間滾動
+- 抽點 decimation，避免每幀重繪過多點
+- blit 加速重繪
+- 容錯解析：壞行自動略過
+
+假設每行資料格式：
+ax,ay,az,gx,gy,gz,mx,my,mz,pressure,temperature,altitude
+"""
+
+import threading
 import time
-import serial
-import matplotlib
-matplotlib.use("TkAgg")  # 很重要：避免某些環境互動視窗卡死
-import matplotlib.pyplot as plt
 from collections import deque
 
-# ========================
-# 使用者參數
-# ========================
-PORT = "/dev/ttyUSB0"   # 改成正確的port，例如 /dev/ttyUSB1, /dev/ttyACM0, COM5...
+import numpy as np
+import serial
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
+# ======== 參數 ========
+PORT = "/dev/ttyUSB0"    # Linux：/dev/ttyUSB0 或 /dev/ttyACM0
 BAUD = 230400
-TIMEOUT = 1.0
-WINDOW_SIZE = 200
+TIMEOUT = 0.02           # 短逾時，降低卡頓
+WINDOW_SEC = 30          # X 軸固定顯示最近 N 秒
+PLOT_MAX_POINTS = 1500   # 單曲線最多繪製點數（自動抽點）
+READ_BUFFER_MAX = 60000  # 背景緩衝上限
+# ======================
 
-# ========================
-# 緩衝區
-# ========================
-t_buf   = deque(maxlen=WINDOW_SIZE)
-ax_buf  = deque(maxlen=WINDOW_SIZE)
-ay_buf  = deque(maxlen=WINDOW_SIZE)
-az_buf  = deque(maxlen=WINDOW_SIZE)
+# 背景緩衝：放 (t, ax, ay, az, gx, gy, gz, mx, my, mz, alt)
+buf = deque(maxlen=READ_BUFFER_MAX)
+buf_lock = threading.Lock()
+run_flag = True
+t0 = time.monotonic()
 
-gx_buf  = deque(maxlen=WINDOW_SIZE)
-gy_buf  = deque(maxlen=WINDOW_SIZE)
-gz_buf  = deque(maxlen=WINDOW_SIZE)
-
-mx_buf  = deque(maxlen=WINDOW_SIZE)
-my_buf  = deque(maxlen=WINDOW_SIZE)
-mz_buf  = deque(maxlen=WINDOW_SIZE)
-
-alt_buf = deque(maxlen=WINDOW_SIZE)
-
-t0 = None  # 開始時間 (第一筆資料時間)
-last_print_time = 0  # 用來降低print頻率，避免洗螢幕太快
-
-
-def parse_line(line):
+def parse_line(s: str):
     """
-    嘗試解析你的 IMU 字串。
-    預期格式:
-    A[g]:ax,ay,az|G[rad/s]:gx,gy,gz|M[mG]:mx,my,mz|...|...|Alt[m]:alt
-    回傳 tuple 或 None
+    解析一行 CSV -> 回傳 11 欄：
+    (ax, ay, az, gx, gy, gz, mx, my, mz, alt, ok)
+    若資料不足或格式錯誤，回傳 (..., False)
     """
-    line = line.strip()
-    if not line.startswith("A[g]:"):
-        return None
-
-    parts = line.split("|")
-    if len(parts) < 6:
-        return None
-
     try:
-        a_vals = parts[0].replace("A[g]:", "").split(",")
-        ax = float(a_vals[0])
-        ay = float(a_vals[1])
-        az = float(a_vals[2])
+        parts = s.strip().split(",")
+        if len(parts) < 12:
+            return (None,)*10 + (False,)
+        ax = float(parts[0]); ay = float(parts[1]); az = float(parts[2])
+        gx = float(parts[3]); gy = float(parts[4]); gz = float(parts[5])
+        mx = float(parts[6]); my = float(parts[7]); mz = float(parts[8])
+        alt = float(parts[11])  # altitude 在第 12 欄
+        return ax, ay, az, gx, gy, gz, mx, my, mz, alt, True
+    except Exception:
+        return (None,)*10 + (False,)
 
-        g_vals = parts[1].replace("G[rad/s]:", "").split(",")
-        gx = float(g_vals[0])
-        gy = float(g_vals[1])
-        gz = float(g_vals[2])
-
-        m_vals = parts[2].replace("M[mG]:", "").split(",")
-        mx = float(m_vals[0])
-        my = float(m_vals[1])
-        mz = float(m_vals[2])
-
-        alt_str = parts[5].replace("Alt[m]:", "").strip()
-        alt = float(alt_str)
-
-        return ax, ay, az, gx, gy, gz, mx, my, mz, alt
-
-    except Exception as e:
-        print("[PARSE EXCEPTION]", e)
-        return None
-
-
-def autoscale_axis(ax, lists, pad_ratio=0.1, fallback=(-1, 1)):
-    vals = []
-    for arr in lists:
-        vals.extend(arr)
-    if not vals:
-        ax.set_ylim(fallback[0], fallback[1])
+def reader_thread():
+    """ 序列讀取執行緒：快速讀 -> 解析 -> 丟進共享緩衝 """
+    global run_flag
+    try:
+        ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+    except serial.SerialException as e:
+        print("[ERROR] 開啟序列埠失敗：", e)
+        run_flag = False
         return
-    vmin = min(vals)
-    vmax = max(vals)
-    if vmin == vmax:
-        ax.set_ylim(vmin - 1, vmax + 1)
-    else:
-        pad = (vmax - vmin) * pad_ratio
-        ax.set_ylim(vmin - pad, vmax + pad)
+    with ser:
+        while run_flag:
+            raw = ser.readline()
+            if not raw:
+                continue
+            try:
+                s = raw.decode("utf-8", errors="ignore")
+            except Exception:
+                continue
+            ax, ay, az, gx, gy, gz, mx, my, mz, alt, ok = parse_line(s)
+            if not ok:
+                continue
+            t = time.monotonic() - t0
+            with buf_lock:
+                buf.append((t, ax, ay, az, gx, gy, gz, mx, my, mz, alt))
 
+# 啟動背景讀取
+th = threading.Thread(target=reader_thread, daemon=True)
+th.start()
 
-# === Matplotlib figure ===
-plt.ion()
-fig, axes = plt.subplots(4, 1, figsize=(10, 10))
-fig.canvas.manager.set_window_title("IMU Debug Real-Time Plot")
+# ======== 視覺化 ========
+plt.rcParams['path.simplify'] = True
+plt.rcParams['path.simplify_threshold'] = 1.0
 
-ax_acc = axes[0]
-line_ax, = ax_acc.plot([0], [0], label="Ax")
-line_ay, = ax_acc.plot([0], [0], label="Ay")
-line_az, = ax_acc.plot([0], [0], label="Az")
+fig, axes = plt.subplots(4, 1, figsize=(10, 10), sharex=True)
+ax_acc, ax_gyr, ax_mag, ax_alt = axes
+fig.suptitle("Live IMU (ax/ay/az, gx/gy/gz, mx/my/mz, altitude)")
+
+# 加速度
+la_x, = ax_acc.plot([], [], lw=1.2, label="ax (g)", animated=True)
+la_y, = ax_acc.plot([], [], lw=1.2, label="ay (g)", animated=True)
+la_z, = ax_acc.plot([], [], lw=1.2, label="az (g)", animated=True)
 ax_acc.set_ylabel("Accel (g)")
-ax_acc.set_title("Accelerometer")
 ax_acc.grid(True)
-ax_acc.legend(loc="upper left")
+ax_acc.legend(loc="upper right")
 
-ax_gyro = axes[1]
-line_gx, = ax_gyro.plot([0], [0], label="Gx")
-line_gy, = ax_gyro.plot([0], [0], label="Gy")
-line_gz, = ax_gyro.plot([0], [0], label="Gz")
-ax_gyro.set_ylabel("Gyro (rad/s)")
-ax_gyro.set_title("Gyroscope")
-ax_gyro.grid(True)
-ax_gyro.legend(loc="upper left")
+# 陀螺儀
+lg_x, = ax_gyr.plot([], [], lw=1.2, label="gx", animated=True)
+lg_y, = ax_gyr.plot([], [], lw=1.2, label="gy", animated=True)
+lg_z, = ax_gyr.plot([], [], lw=1.2, label="gz", animated=True)
+ax_gyr.set_ylabel("Gyro")
+ax_gyr.grid(True)
+ax_gyr.legend(loc="upper right")
 
-ax_mag = axes[2]
-line_mx, = ax_mag.plot([0], [0], label="Mx")
-line_my, = ax_mag.plot([0], [0], label="My")
-line_mz, = ax_mag.plot([0], [0], label="Mz")
-ax_mag.set_ylabel("Mag (mG)")
-ax_mag.set_title("Magnetometer")
+# 磁力計
+lm_x, = ax_mag.plot([], [], lw=1.2, label="mx", animated=True)
+lm_y, = ax_mag.plot([], [], lw=1.2, label="my", animated=True)
+lm_z, = ax_mag.plot([], [], lw=1.2, label="mz", animated=True)
+ax_mag.set_ylabel("Mag")
 ax_mag.grid(True)
-ax_mag.legend(loc="upper left")
+ax_mag.legend(loc="upper right")
 
-ax_alt = axes[3]
-line_alt, = ax_alt.plot([0], [0], label="Alt")
-ax_alt.set_ylabel("Alt (m)")
+# 海拔
+l_alt, = ax_alt.plot([], [], lw=1.4, label="altitude (m)", animated=True)
 ax_alt.set_xlabel("Time (s)")
-ax_alt.set_title("Altitude")
+ax_alt.set_ylabel("Alt (m)")
 ax_alt.grid(True)
-ax_alt.legend(loc="upper left")
+ax_alt.legend(loc="upper right")
 
-# === Serial open ===
-print(f"[MAIN] Opening serial {PORT} @ {BAUD} ...")
-ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
-time.sleep(2.0)
-print("[MAIN] Serial opened.")
+# 佇列保存目前窗口資料
+times = deque()
+axs = deque(); ays = deque(); azs = deque()
+gxs = deque(); gys = deque(); gzs = deque()
+mxs = deque(); mys = deque(); mzs = deque()
+alts = deque()
 
-try:
-    while True:
-        raw = ser.readline().decode("utf-8", errors="ignore").strip()
+def pop_all_from_buf():
+    with buf_lock:
+        if not buf:
+            return []
+        out = list(buf)
+        buf.clear()
+        return out
 
-        now_sys = time.time()
+def decimate(xs, ys, max_points):
+    """ 抽點（簡單步進抽樣），避免重繪太多點 """
+    n = len(xs)
+    if n <= max_points:
+        return xs, ys
+    step = n // max_points + 1
+    return xs[::step], ys[::step]
 
-        if raw == "":
-            # 沒讀到任何資料（timeout)
-            # 我們每0.5秒提醒一次
-            if now_sys - last_print_time > 0.5:
-                print("[DEBUG] no data...")
-                last_print_time = now_sys
+# 初次繪製與背景快照（blit 需要）
+fig.canvas.draw()
+bg = fig.canvas.copy_from_bbox(fig.bbox)
+prev_xlim = (0.0, WINDOW_SEC)
 
-            plt.pause(0.001)
-            continue
+def refresh_bg():
+    """ 尺寸或座標更動時需重抓背景 """
+    fig.canvas.draw()
+    return fig.canvas.copy_from_bbox(fig.bbox)
 
-        # 印出原始字串 (低頻率)
-        if now_sys - last_print_time > 0.5:
-            print("[RAW]", raw)
-            last_print_time = now_sys
+def trim_window():
+    """ 丟掉視窗外的資料，只保留最近 WINDOW_SEC 秒 """
+    if not times:
+        return
+    tmax = times[-1]
+    tmin = tmax - WINDOW_SEC
+    while times and times[0] < tmin:
+        times.popleft(); axs.popleft(); ays.popleft(); azs.popleft()
+        gxs.popleft();  gys.popleft();  gzs.popleft()
+        mxs.popleft();  mys.popleft();  mzs.popleft()
+        alts.popleft()
 
-        parsed = parse_line(raw)
+def update(_):
+    global bg, prev_xlim
 
-        if parsed is None:
-            # 格式不符合
-            # 我們標記失敗一次，幫你知道是不是parser問題
-            print("[PARSE FAIL]")
-            plt.pause(0.001)
-            continue
-        else:
-            # 有成功解析資料
-            ax_val, ay_val, az_val, gx_val, gy_val, gz_val, mx_val, my_val, mz_val, alt_val = parsed
-            # 只偶爾印（避免洗爆）
-            # 這行會讓你確認數值是不是固定一樣
-            print("[PARSED OK] ax=", ax_val, "ay=", ay_val, "alt=", alt_val)
+    # 拿走背景緩衝的所有新資料
+    new = pop_all_from_buf()
+    if new:
+        for t, ax_v, ay_v, az_v, gx_v, gy_v, gz_v, mx_v, my_v, mz_v, alt_v in new:
+            times.append(t)
+            axs.append(ax_v); ays.append(ay_v); azs.append(az_v)
+            gxs.append(gx_v); gys.append(gy_v); gzs.append(gz_v)
+            mxs.append(mx_v); mys.append(my_v); mzs.append(mz_v)
+            alts.append(alt_v)
+        trim_window()
 
-        # 時間戳 (t=0 為第一筆成功解析的資料時間)
-        if t0 is None:
-            t0 = now_sys
-        t_now = now_sys - t0
+    if not times:
+        return (la_x, la_y, la_z,
+                lg_x, lg_y, lg_z,
+                lm_x, lm_y, lm_z,
+                l_alt)
 
-        # push data
-        t_buf.append(t_now)
-        ax_buf.append(ax_val); ay_buf.append(ay_val); az_buf.append(az_val)
-        gx_buf.append(gx_val); gy_buf.append(gy_val); gz_buf.append(gz_val)
-        mx_buf.append(mx_val); my_buf.append(my_val); mz_buf.append(mz_val)
-        alt_buf.append(alt_val)
+    # 轉 numpy
+    x  = np.fromiter(times, dtype=float)
+    ax = np.fromiter(axs, dtype=float)
+    ay = np.fromiter(ays, dtype=float)
+    az = np.fromiter(azs, dtype=float)
+    gx = np.fromiter(gxs, dtype=float)
+    gy = np.fromiter(gys, dtype=float)
+    gz = np.fromiter(gzs, dtype=float)
+    mx = np.fromiter(mxs, dtype=float)
+    my = np.fromiter(mys, dtype=float)
+    mz = np.fromiter(mzs, dtype=float)
+    alt = np.fromiter(alts, dtype=float)
 
-        # turn deque -> list for plotting
-        t_list   = list(t_buf)
-        ax_list  = list(ax_buf)
-        ay_list  = list(ay_buf)
-        az_list  = list(az_buf)
-        gx_list  = list(gx_buf)
-        gy_list  = list(gy_buf)
-        gz_list  = list(gz_buf)
-        mx_list  = list(mx_buf)
-        my_list  = list(my_buf)
-        mz_list  = list(mz_buf)
-        alt_list = list(alt_buf)
+    # 抽點
+    x_d, ax_d = decimate(x, ax, PLOT_MAX_POINTS)
+    _,   ay_d = decimate(x, ay, PLOT_MAX_POINTS)
+    _,   az_d = decimate(x, az, PLOT_MAX_POINTS)
 
-        # update each line's x and y
-        line_ax.set_xdata(t_list); line_ax.set_ydata(ax_list)
-        line_ay.set_xdata(t_list); line_ay.set_ydata(ay_list)
-        line_az.set_xdata(t_list); line_az.set_ydata(az_list)
+    _,   gx_d = decimate(x, gx, PLOT_MAX_POINTS)
+    _,   gy_d = decimate(x, gy, PLOT_MAX_POINTS)
+    _,   gz_d = decimate(x, gz, PLOT_MAX_POINTS)
 
-        line_gx.set_xdata(t_list); line_gx.set_ydata(gx_list)
-        line_gy.set_xdata(t_list); line_gy.set_ydata(gy_list)
-        line_gz.set_xdata(t_list); line_gz.set_ydata(gz_list)
+    _,   mx_d = decimate(x, mx, PLOT_MAX_POINTS)
+    _,   my_d = decimate(x, my, PLOT_MAX_POINTS)
+    _,   mz_d = decimate(x, mz, PLOT_MAX_POINTS)
 
-        line_mx.set_xdata(t_list); line_mx.set_ydata(mx_list)
-        line_my.set_xdata(t_list); line_my.set_ydata(my_list)
-        line_mz.set_xdata(t_list); line_mz.set_ydata(mz_list)
+    _,   alt_d = decimate(x, alt, PLOT_MAX_POINTS)
 
-        line_alt.set_xdata(t_list); line_alt.set_ydata(alt_list)
+    # X 軸：固定顯示 [tmax - WINDOW_SEC, tmax]
+    tmax = x[-1]
+    xmin = max(0.0, tmax - WINDOW_SEC)
+    xmax = max(xmin + 1e-3, tmax)
+    need_xlim_update = (prev_xlim[0] != xmin) or (prev_xlim[1] != xmax)
+    if need_xlim_update:
+        for axh in (ax_acc, ax_gyr, ax_mag, ax_alt):
+            axh.set_xlim(xmin, xmax)
+        bg = refresh_bg()
+        prev_xlim = (xmin, xmax)
 
-        # x 軸範圍 = 目前視窗
-        if len(t_list) >= 2:
-            t_min = t_list[0]
-            t_max = t_list[-1]
-            ax_acc.set_xlim(t_min, t_max)
-            ax_gyro.set_xlim(t_min, t_max)
-            ax_mag.set_xlim(t_min, t_max)
-            ax_alt.set_xlim(t_min, t_max)
+    # Y 軸自動範圍
+    def set_ylim_auto(axh, *ys):
+        ymin = float(min([y.min() if len(y) else 0.0 for y in ys]))
+        ymax = float(max([y.max() if len(y) else 0.0 for y in ys]))
+        if ymin == ymax:
+            ymin, ymax = ymin - 1.0, ymax + 1.0
+        margin = 0.1 * (ymax - ymin)
+        axh.set_ylim(ymin - margin, ymax + margin)
 
-        # y 軸自動縮放
-        autoscale_axis(ax_acc, [ax_buf, ay_buf, az_buf], fallback=(-5, 5))
-        autoscale_axis(ax_gyro, [gx_buf, gy_buf, gz_buf], fallback=(-10, 10))
-        autoscale_axis(ax_mag, [mx_buf, my_buf, mz_buf], fallback=(-1000, 1000))
-        autoscale_axis(ax_alt, [alt_buf], fallback=(0, 2))
+    set_ylim_auto(ax_acc, ax_d, ay_d, az_d)
+    set_ylim_auto(ax_gyr, gx_d, gy_d, gz_d)
+    set_ylim_auto(ax_mag, mx_d, my_d, mz_d)
+    set_ylim_auto(ax_alt, alt_d)
 
-        # redraw
-        fig.canvas.draw()
-        fig.canvas.flush_events()
-        plt.pause(0.001)
+    # 還原背景後只畫線（blit）
+    fig.canvas.restore_region(bg)
 
-except KeyboardInterrupt:
-    print("[MAIN] Ctrl+C stop")
+    la_x.set_data(x_d, ax_d)
+    la_y.set_data(x_d, ay_d)
+    la_z.set_data(x_d, az_d)
+    ax_acc.draw_artist(la_x); ax_acc.draw_artist(la_y); ax_acc.draw_artist(la_z)
 
-finally:
-    ser.close()
-    plt.ioff()
-    plt.show()
-    print("[MAIN] done")
+    lg_x.set_data(x_d, gx_d)
+    lg_y.set_data(x_d, gy_d)
+    lg_z.set_data(x_d, gz_d)
+    ax_gyr.draw_artist(lg_x); ax_gyr.draw_artist(lg_y); ax_gyr.draw_artist(lg_z)
+
+    lm_x.set_data(x_d, mx_d)
+    lm_y.set_data(x_d, my_d)
+    lm_z.set_data(x_d, mz_d)
+    ax_mag.draw_artist(lm_x); ax_mag.draw_artist(lm_y); ax_mag.draw_artist(lm_z)
+
+    l_alt.set_data(x_d, alt_d)
+    ax_alt.draw_artist(l_alt)
+
+    fig.canvas.blit(fig.bbox)
+    fig.canvas.flush_events()
+
+    return (la_x, la_y, la_z,
+            lg_x, lg_y, lg_z,
+            lm_x, lm_y, lm_z,
+            l_alt)
+
+def on_resize(_evt):
+    # 視窗大小改變也要重抓背景
+    global bg
+    bg = refresh_bg()
+
+def on_close(_evt):
+    global run_flag
+    run_flag = False
+
+fig.canvas.mpl_connect("resize_event", on_resize)
+fig.canvas.mpl_connect("close_event", on_close)
+
+ani = animation.FuncAnimation(fig, update, interval=33, blit=True)
+plt.tight_layout()
+plt.show()
+
+run_flag = False
+th.join(timeout=0.5)
