@@ -34,11 +34,6 @@ class BluetoothIMUPublisher(Node):
         self.ser = None
         self.connect_serial()
 
-        # Convert from ENU → NED convention (Madgwick expects NED)
-        acc = np.array([ acc[1], acc[0], -acc[2] ])
-        gyr = np.array([ gyr[1], gyr[0], -gyr[2] ])
-        mag = np.array([ mag[1], mag[0], -mag[2] ])
-
         self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
 
         # --- Madgwick filter initialization ---
