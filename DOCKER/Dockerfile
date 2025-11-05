@@ -76,7 +76,7 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Python dependencies (with system break allowance)
 # -------------------------------
-RUN pip3 install --break-system-packages rclpy numpy scipy matplotlib ahrs pandas openpyxl
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
 
 # -------------------------------
 # Entrypoint setup script
