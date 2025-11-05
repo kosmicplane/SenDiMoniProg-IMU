@@ -44,7 +44,6 @@ RUN apt-get update && apt-get install -y \
     mesa-utils \
     re \
     mesa-vulkan-drivers \
-    ros-kilted-rclpy \
     python3-serial \
     vulkan-tools \
     libgl1-mesa-dri \
@@ -76,7 +75,7 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Python dependencies (with system break allowance)
 # -------------------------------
-RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
+RUN pip3 install --break-system-packages numpy rclpy scipy matplotlib ahrs pandas openpyxl
 
 # -------------------------------
 # Entrypoint setup script
