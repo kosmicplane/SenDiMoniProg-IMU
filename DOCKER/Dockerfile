@@ -1,6 +1,3 @@
-# ================================================
-# Base image: ROS Kilted Perception (Ubuntu Noble)
-# ================================================
 FROM ros:kilted-perception-noble
 
 # -------------------------------
@@ -20,29 +17,34 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Workspace setup
 # -------------------------------
-RUN mkdir -p /home/src
-WORKDIR /home
+RUN mkdir -p /opt/repo
+WORKDIR /opt
 
-# Clone project repository
-RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git
+# Clone project repository at build time
+RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git repo
 
-# Friendly greeting (debug/test line)
+# Copy repo to /home inside image (avoid overwriting with host volume)
+RUN mkdir -p /home/SenDiMoniProg-IMU && \
+    cp -r /opt/repo/* /home/SenDiMoniProg-IMU/ && \
+    rm -rf /opt/repo
+
+# Friendly greeting
 RUN echo "HOLA AMIGUITOS / Hello little friends / Ni Hao xiaopengyou / Bonjour les petits amis / Hallo kleine Freunde / Ciao piccoli amici / Привет маленькие друзья"
 
 # -------------------------------
-# (Optional) Gazebo Harmonic installation
+# Gazebo Harmonic installation
 # -------------------------------
 RUN mkdir -p /etc/apt/keyrings && \
     curl -sSL https://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
-    apt-get update && apt-get install -y gz-harmonic
+    apt-get update && apt-get install -y gz-harmonic && \
+    rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
 # Additional system packages
 # -------------------------------
 RUN apt-get update && apt-get install -y \
     mesa-utils \
-    re \
     mesa-vulkan-drivers \
     python3-serial \
     vulkan-tools \
@@ -56,37 +58,33 @@ RUN apt-get update && apt-get install -y \
     iproute2 \
     ros-kilted-sensor-msgs-py \
     ros-kilted-geometry-msgs \
+    ros-kilted-ros-gz-bridge \
+    ros-kilted-ros-gz-sim \
     && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
-# ROS-Gazebo Bridge components
+# Python dependencies
 # -------------------------------
-RUN apt-get update && apt-get install -y \
-    ros-kilted-ros-gz-bridge \
-    ros-kilted-ros-gz-sim \
-    && rm -rf /var/lib/apt/lists/* \
-    && export RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
-    && export ROS_DOMAIN_ID=42 \
-    && export FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml \
-    && export GAZEBO_MASTER_URI=http://192.168.55.1:11345 \
-    && export GAZEBO_RESOURCE_PATH=/usr/share/gz \
-    && export GZ_SIM_RESOURCE_PATH=/usr/share/gz
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
 
 # -------------------------------
-# Python dependencies (with system break allowance)
+# ROS environment variables
 # -------------------------------
-RUN pip3 install --break-system-packages numpy  scipy matplotlib ahrs pandas openpyxl
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ENV ROS_DOMAIN_ID=42
+ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
+ENV GAZEBO_MASTER_URI=http://192.168.55.1:11345
+ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
+ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
+ENV ROS_LOCALHOST_ONLY=0
 
 # -------------------------------
-# Entrypoint setup script
+# Entrypoint setup
 # -------------------------------
 RUN echo '#!/bin/bash\n\
-cd ..\n\
 source /opt/ros/kilted/setup.bash\n\
-[ -f install/setup.bash ] && source install/setup.bash\n\
-apt-get update\n\
-echo "Done"\n\
+[ -f /home/SenDiMoniProg-IMU/install/setup.bash ] && source /home/SenDiMoniProg-IMU/install/setup.bash\n\
+echo "🚀 ROS 2 + Gazebo + AHRS listo sin Internet"\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Default command when container starts
 CMD ["/entrypoint.sh"]
