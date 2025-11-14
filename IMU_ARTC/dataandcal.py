@@ -21,16 +21,17 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from scipy import linalg
+from datetime import datetime
 
 # ===== USER SETTINGS =====
-PORT = "COM3"
+PORT = "/dev/ttyUSB0"
 BAUD = 230400
 TIMEOUT = 1.0
 DEFAULT_N_SAMPLES = 1090
 
-SAVE_DIR = Path("C:/Users/aadis/OneDrive/Documents/PlatformIO/Projects/IMU py/samples2")
-ROOT_DIR = Path("C:/Users/aadis/OneDrive/Documents/PlatformIO/Projects/IMU py/data/samples")
-CAL_DIR = Path("C:/Users/aadis/OneDrive/Documents/PlatformIO/Projects/IMU py/calibration_matrices")
+SAVE_DIR = Path("/home/badkitten/Desktop/SenDiMoniProg-IMU/IMU_ARTC/samples2/")
+ROOT_DIR = Path("/home/badkitten/Desktop/SenDiMoniProg-IMU/IMU_ARTC/data/samples/")
+CAL_DIR = Path("/home/badkitten/Desktop/SenDiMoniProg-IMU/IMU_ARTC/calibration_matrices/")
 CAL_DIR.mkdir(parents=True, exist_ok=True)
 
 EXPECTED_FIELDS = 12
@@ -176,47 +177,87 @@ def mode_three_stage(ser):
 
 # ===== Continuous Stream Mode =====
 def mode_stream(ser):
-    """Automatic continuous recording mode with timestamped filename."""
+    """Continuous recording mode – filename entered by user."""
     os.makedirs(ROOT_DIR, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"imurawdata_{timestamp}.txt"
+    # Ask user for filename
+    user_name = input(
+        "\nPlease enter file name (without .txt). "
+        "Press Enter to use default timestamp name:\n> "
+    ).strip()
+
+    # Build final filename
+    if user_name == "":
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"imurawdata_{timestamp}.txt"
+    else:
+        filename = user_name + ".txt" if not user_name.endswith(".txt") else user_name
+
     path = Path(ROOT_DIR) / filename
 
-    print(f"\n[INFO] Continuous recording started automatically.")
-    print(f"[INFO] File: {path}")
+    print(f"\n[INFO] Continuous recording mode started.")
+    print(f"[INFO] Save path: {path}")
     print(f"[INFO] Press Ctrl+C to stop.\n")
 
     try:
         with open(path, "w", encoding="utf-8", buffering=1) as f:
-            f.write("ax,ay,az,gx,gy,gz,mx,my,mz,pressure,temperature,altitude\n")
+            # HEADER: t = real world clock (HH:MM:SS:MS)
+            f.write("t,ax,ay,az,gx,gy,gz,mx,my,mz,altitude,ral\n")
+
             start_time = time.time()
             count = 0
+            prev_alt = None  # for RAL calculation
 
             while True:
                 line = ser.readline()
                 if not line:
                     continue
+
                 parts = parse_line_to_parts(line)
-                if parts:
-                    f.write(",".join(parts[:EXPECTED_FIELDS]) + "\n")
-                    count += 1
-                    #time.sleep(0.05)  # <-- slows down loop to ~20 samples per second
+                if not parts:
+                    continue
 
+                # parts = [ax, ay, az, gx, gy, gz, mx, my, mz, pressure, temperature, altitude]
+                try:
+                    altitude = float(parts[11])
+                except (IndexError, ValueError):
+                    # skip bad line
+                    continue
 
+                # t = real world clock string with milliseconds: HH:MM:SS:MS
+                now = datetime.now()
+                # %f = microseconds (6 digits) → 取前三位變成毫秒，再用 : 分隔
+                t_str = now.strftime("%H:%M:%S:%f")[:-3]   # e.g. 14:32:05:123
 
-                    # print every 500th line to console
-                    if count % 500 == 0:
-                        elapsed = time.time() - start_time
-                        print(f"[{count}] samples saved ({elapsed:.1f}s elapsed)")
+                # RAL calculation: altitude[n] - altitude[n-1]
+                if prev_alt is None:
+                    ral = 0.0
+                else:
+                    ral = altitude - prev_alt
+                prev_alt = altitude
+
+                row = [
+                    t_str,                   # t (real clock with ms)
+                    parts[0], parts[1], parts[2],   # ax ay az
+                    parts[3], parts[4], parts[5],   # gx gy gz
+                    parts[6], parts[7], parts[8],   # mx my mz
+                    parts[11],                      # altitude
+                    f"{ral:.6f}"                    # ral
+                ]
+
+                f.write(",".join(row) + "\n")
+                count += 1
+
+                if count % 500 == 0:
+                    elapsed = time.time() - start_time
+                    print(f"[INFO] {count} samples saved ({elapsed:.1f}s elapsed)")
 
     except KeyboardInterrupt:
-        print("\n[STOP] Recording stopped by user.")
+        print("\n[STOP] User stopped recording.")
     except Exception as e:
         print(f"[ERR] {e}")
     finally:
-        print(f"[INFO] File saved to: {path}")
-
+        print(f"[INFO] File saved: {path}")
 
 # ===== Calibration Analysis =====
 def latest(prefix):
