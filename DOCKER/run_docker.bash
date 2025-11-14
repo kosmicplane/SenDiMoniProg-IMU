@@ -11,7 +11,6 @@ PROJECT_DIR="$USER_HOME/Desktop/SenDiMoniProg-IMU"
 
 cd "$PROJECT_DIR"
 echo "🔄 Updating repository before mounting..."
-git pull origin main || git pull origin master
 echo "✅ Repository updated."
 
 docker run -it --rm \
