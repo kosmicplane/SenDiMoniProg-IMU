@@ -72,9 +72,9 @@ void loop() {
   float ay = imu.a.y * 0.000122f;
   float az = imu.a.z * 0.000122f;
 
-  float gx = imu.g.x *  0.0175f * M_PI / 180.0; // rad/s
-  float gy = imu.g.y *  0.0175f * M_PI / 180.0;
-  float gz = imu.g.z *  0.0175f * M_PI / 180.0;
+  float gx = imu.g.x *  0.0175f ; // deg/s
+  float gy = imu.g.y *  0.0175f ;
+  float gz = imu.g.z *  0.0175f ;
 
   float mx = mag.m.x * 0.00014f;       // mGauss (±4 gauss FS)
   float my = mag.m.y * 0.00014f;
