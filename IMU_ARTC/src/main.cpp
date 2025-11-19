@@ -97,7 +97,7 @@ void loop() {
   Serial.print(temperature, 2); Serial.print(",");
   Serial.println(altitude, 2);
 
-  delay(5); // 10 Hz
+  delay(10); // 100 Hz
 }
 
 
