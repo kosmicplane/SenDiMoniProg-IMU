@@ -25,16 +25,20 @@ import numpy as np
 from scipy import linalg
 
 # ------------- USER SETTINGS -------------
-PORT = "COM3"
+PORT = "//dev/ttyUSB0"
 BAUD = 230400
 TIMEOUT = 1.0
 DEFAULT_N_SAMPLES = 1090
 
-PROJECT_ROOT = Path("C:/Users/aadis/OneDrive/Documents/PlatformIO/Projects/IMU py")
-SAVE_DIR = PROJECT_ROOT / "samples2"
-ROOT_DIR = PROJECT_ROOT / "data" / "samples"
+folder_name = input("Enter folder name: ").strip()
+
+BASE_ROOT = Path("/home/badkitten/Desktop/SenDiMoniProg-IMU/IMU_ARTC/data")
+
+PROJECT_ROOT = BASE_ROOT / folder_name 
+SAVE_DIR = PROJECT_ROOT / "raw_data_for_calibration"
+ROOT_DIR = PROJECT_ROOT / "raw_data"
 CAL_DIR = PROJECT_ROOT / "calibration_matrices"
-OUT_DIR = PROJECT_ROOT / "calibrated output"
+OUT_DIR = PROJECT_ROOT / "calibrated_output"
 
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 ROOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -510,22 +514,31 @@ def mode_stream_interactive(ser):
 def main():
     ser = open_serial_port()
     try:
-        print("\n=== Mode Selection ===")
-        print("1) Three-stage calibration data collection (auto-run ellipsoid calibration after collection)")
-        print("2) Continuous recording mode (enter filename interactively)")
-        mode = input("Enter 1 or 2: ").strip()
-        if mode == "1":
-            if ser is None:
-                print("[ERR] Serial not available; mode 1 requires serial port.")
-                return
-            mode_three_stage_and_calibrate(ser)
-        elif mode == "2":
-            if ser is None:
-                print("[ERR] Serial not available; mode 2 requires serial port.")
-                return
-            mode_stream_interactive(ser)
-        else:
-            print("Invalid choice.")
+        while True:
+            print("\n=== Mode Selection ===")
+            print("1) Three-stage calibration data collection (auto-run ellipsoid calibration after collection)")
+            print("2) Continuous recording mode (enter filename interactively)")
+            print("q) Quit")
+            mode = input("Enter 1, 2, or q: ").strip().lower()
+
+            if mode == "1":
+                if ser is None:
+                    print("[ERR] Serial not available; mode 1 requires serial port.")
+                    continue
+                mode_three_stage_and_calibrate(ser)   
+
+            elif mode == "2":
+                if ser is None:
+                    print("[ERR] Serial not available; mode 2 requires serial port.")
+                    continue
+                mode_stream_interactive(ser)          
+
+            elif mode == "q":
+                print("[INFO] User requested exit.")
+                break
+
+            else:
+                print("Invalid choice. Please enter 1, 2, or q.")
     finally:
         try:
             if ser:
