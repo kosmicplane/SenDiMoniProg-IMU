@@ -113,10 +113,7 @@ def collect_n(ser, indices, header_labels, n_samples):
             continue
         rows.append(tuple(vals))
         count += 1
-
-        time.sleep(0.05)   # 20 Hz sampling for calibration mode
-
-        if count % 100 == 0:
+        if count % 200 == 0:
             print(f"  Collected {count}/{n_samples}")
     return header_labels, rows
 
@@ -158,28 +155,6 @@ def sphericity_pct(data):
     std = np.std(norms)
     s = 100.0 * max(0.0, 1.0 - (std / m))
     return float(np.clip(s, 0.0, 100.0))
-
-def sphere_center_from_calibrated(data):
-    """
-    Fit sphere center (cx,cy,cz) + radius to calibrated data cloud.
-    Only least-squares sphere fitting (not ellipsoid).
-    """
-    data = np.asarray(data, dtype=float)
-    X = data[:,0]
-    Y = data[:,1]
-    Z = data[:,2]
-
-    A = np.column_stack([2*X, 2*Y, 2*Z, np.ones(len(X))])
-    b = X*X + Y*Y + Z*Z
-
-    sol, *_ = np.linalg.lstsq(A, b, rcond=None)
-    cx, cy, cz, k = sol
-
-    center = np.array([cx, cy, cz], dtype=float)
-    radius = np.sqrt(k + cx*cx + cy*cy + cz*cz)
-
-    return center, float(radius)
-
 
 # ---------- Ellipsoid math (shared) ----------
 def ellipsoid_fit(samples):
@@ -434,31 +409,6 @@ def mode_three_stage_and_calibrate(ser):
     print(f"  ACCEL  RAW: {acc_raw_sph:.2f}%   CAL: {acc_cal_sph:.2f}%")
     print(f"  MAG    RAW: {mag_raw_sph:.2f}%   CAL: {mag_cal_sph:.2f}%")
 
-    # --------------------------------------------------------
-    #  POST-CALIBRATION SPHERE CENTER VALIDATION (requested)
-    # --------------------------------------------------------
-    acc_center, acc_radius = sphere_center_from_calibrated(accel_cal)
-    mag_center, mag_radius = sphere_center_from_calibrated(mag_cal)
-
-    def mag(v): return float(np.linalg.norm(v))
-
-    print("\n=== POST-CALIBRATION SPHERE CENTER VALIDATION ===")
-
-    print("\nACCELEROMETER (CALIBRATED SPHERE CENTER):")
-    print(f"   Center X = {acc_center[0]:.6f}")
-    print(f"   Center Y = {acc_center[1]:.6f}")
-    print(f"   Center Z = {acc_center[2]:.6f}")
-    print(f" → Distance of calibrated center from true origin = {mag(acc_center):.6f}")
-    print(f" → Calibrated radius = {acc_radius:.6f}")
-
-    print("\nMAGNETOMETER (CALIBRATED SPHERE CENTER):")
-    print(f"   Center X = {mag_center[0]:.6f}")
-    print(f"   Center Y = {mag_center[1]:.6f}")
-    print(f"   Center Z = {mag_center[2]:.6f}")
-    print(f" → Distance of calibrated center from true origin = {mag(mag_center):.6f}")
-    print(f" → Calibrated radius = {mag_radius:.6f}\n")
-
-
     return
 
 # ---------- Mode 2: continuous recording with filename input ----------
@@ -493,9 +443,6 @@ def mode_stream_interactive(ser):
                 ts = datetime.now().strftime("%d%m%y_%H.%M.%S.%f")[:-3]
                 f.write(f"{ts},{ax:.5f},{ay:.5f},{az:.5f},{gx:.5f},{gy:.5f},{gz:.5f},{mx:.5f},{my:.5f},{mz:.5f},{alt:.5f},{rel_alt:.5f}\n")
                 count += 1
-                
-                time.sleep(0.01)   # 100 Hz logging
-
                 if count % 500 == 0:
                     elapsed = time.time()
                     print(f"[INFO] {count} samples written...")
