@@ -372,28 +372,33 @@ def mode_three_stage_and_calibrate(ser):
     print(f"  MAG    RAW: {mag_raw_sph:.2f}%   CAL: {mag_cal_sph:.2f}%")
 
     # Post-calibration sphere center check
-    print("\n=== POST-CALIBRATION SPHERE CENTER VALIDATION ===\n")
-    # Accelerometer calibrated-space center:
-    acc_center_cal = np.mean(accel_cal, axis=0) if accel_cal.size else np.zeros(3)
-    acc_center_dist = np.linalg.norm(acc_center_cal - np.zeros(3))
-    acc_radius = float(np.mean(np.linalg.norm(accel_cal - acc_center_cal.reshape(1,3), axis=1))) if accel_cal.size else 0.0
-    print("ACCELEROMETER (CALIBRATED SPACE):")
-    print(f"   Center X = {acc_center_cal[0]:.6f}")
-    print(f"   Center Y = {acc_center_cal[1]:.6f}")
-    print(f"   Center Z = {acc_center_cal[2]:.6f}")
-    print(f" → Distance of calibrated center from true origin = {acc_center_dist:.6f}")
-    print(f" → Calibrated radius = {acc_radius:.6f}\n")
+    print("\n=== POST-CALIBRATION SPHERE CENTER VALIDATION ===")
 
-    # Magnetometer calibrated-space center:
-    mag_center_cal = np.mean(mag_cal, axis=0) if mag_cal.size else np.zeros(3)
-    mag_center_dist = np.linalg.norm(mag_center_cal - np.zeros(3))
-    mag_radius = float(np.mean(np.linalg.norm(mag_cal - mag_center_cal.reshape(1,3), axis=1))) if mag_cal.size else 0.0
-    print("MAGNETOMETER (CALIBRATED SPACE):")
-    print(f"   Center X = {mag_center_cal[0]:.6f}")
-    print(f"   Center Y = {mag_center_cal[1]:.6f}")
-    print(f"   Center Z = {mag_center_cal[2]:.6f}")
-    print(f" → Distance of calibrated center from true origin = {mag_center_dist:.6f}")
-    print(f" → Calibrated radius = {mag_radius:.6f}\n")
+    # -------- ACCELEROMETER --------
+    print("\nACCELEROMETER (CALIBRATED SPACE):")
+
+    acc_cent = np.mean(accel_cal, axis=0)
+    acc_dist = np.linalg.norm(acc_cent)
+    acc_radius = np.mean(np.linalg.norm(accel_cal - acc_cent, axis=1))
+
+    print(f"   Center X = {acc_cent[0]:.6f}")
+    print(f"   Center Y = {acc_cent[1]:.6f}")
+    print(f"   Center Z = {acc_cent[2]:.6f}")
+    print(f" → Distance of calibrated center from true origin = {acc_dist:.6f}")
+    print(f" → Calibrated radius = {acc_radius:.6f}")
+
+    # -------- MAGNETOMETER --------
+    print("\nMAGNETOMETER (CALIBRATED SPACE):")
+
+    mag_cent = np.mean(mag_cal, axis=0)
+    mag_dist = np.linalg.norm(mag_cent)
+    mag_radius = np.mean(np.linalg.norm(mag_cal - mag_cent, axis=1))
+
+    print(f"   Center X = {mag_cent[0]:.6f}")
+    print(f"   Center Y = {mag_cent[1]:.6f}")
+    print(f"   Center Z = {mag_cent[2]:.6f}")
+    print(f" → Distance of calibrated center from true origin = {mag_dist:.6f}")
+    print(f" → Calibrated radius = {mag_radius:.6f}")
 
     return
 
