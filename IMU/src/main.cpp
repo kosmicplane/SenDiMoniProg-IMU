@@ -23,6 +23,12 @@ LSM6 imu;
 LIS3MDL mag;
 LPS ps;
 
+float sampling_rate = 100;
+float time_interval = 1000000/sampling_rate;
+
+float current_time = 0;
+float previous_time = 0;
+
 void setup() {
   Serial.begin(230400);
   Wire.begin();
@@ -58,46 +64,51 @@ void setup() {
 
   // 設定氣壓計 ODR 為 100Hz
   ps.writeReg(0x10, 0x60); // 0x10 = CTRL_REG1, 0x60 = 100Hz
+
+  previous_time = micros();
 }
 
 void loop() {
-  imu.read();
-  mag.read();
-  float pressure = ps.readPressureMillibars();
-  float temperature = ps.readTemperatureC();
-  float altitude = ps.pressureToAltitudeMeters(pressure, 1016.9f); // 1007.9hPa 為當地海平面氣壓 每天可能會不一樣 需要校正
 
- // Convert raw values to physical units
-  float ax = imu.a.x * 0.000122f;   // g
-  float ay = imu.a.y * 0.000122f;
-  float az = imu.a.z * 0.000122f;
+  if((micros() - previous_time) >= time_interval)
+  {
+    previous_time = micros();
+    imu.read();
+    mag.read();
+    float pressure = ps.readPressureMillibars();
+    float temperature = ps.readTemperatureC();
+    float altitude = ps.pressureToAltitudeMeters(pressure, 1016.9f); // 1007.9hPa 為當地海平面氣壓 每天可能會不一樣 需要校正
 
-  float gx = imu.g.x *  0.0175f * M_PI / 180.0; // rad/s
-  float gy = imu.g.y *  0.0175f * M_PI / 180.0;
-  float gz = imu.g.z *  0.0175f * M_PI / 180.0;
+    // Convert raw values to physical units
+    float ax = imu.a.x * 0.000122f;   // g
+    float ay = imu.a.y * 0.000122f;
+    float az = imu.a.z * 0.000122f;
 
-  float mx = mag.m.x * 0.14f;       // mGauss (±4 gauss FS)
-  float my = mag.m.y * 0.14f;
-  float mz = mag.m.z * 0.14f;
+    float gx = imu.g.x *  0.0175f ; // deg/s
+    float gy = imu.g.y *  0.0175f ;
+    float gz = imu.g.z *  0.0175f ;
+
+    float mx = mag.m.x * 0.00014f;       // mGauss (±4 gauss FS)
+    float my = mag.m.y * 0.00014f;
+    float mz = mag.m.z * 0.00014f;
 
     // Output all sensor data in CSV
-  Serial.print(ax, 3); Serial.print(",");
-  Serial.print(ay, 3); Serial.print(",");
-  Serial.print(az, 3); Serial.print(",");
+    Serial.print(ax, 3); Serial.print(",");
+    Serial.print(ay, 3); Serial.print(",");
+    Serial.print(az, 3); Serial.print(",");
 
-  Serial.print(gx, 3); Serial.print(",");
-  Serial.print(gy, 3); Serial.print(",");
-  Serial.print(gz, 3); Serial.print(",");
+    Serial.print(gx, 3); Serial.print(",");
+    Serial.print(gy, 3); Serial.print(",");
+    Serial.print(gz, 3); Serial.print(",");
 
-  Serial.print(mx, 3); Serial.print(",");
-  Serial.print(my, 3); Serial.print(",");
-  Serial.print(mz, 3); Serial.print(",");
+    Serial.print(mx, 3); Serial.print(",");
+    Serial.print(my, 3); Serial.print(",");
+    Serial.print(mz, 3); Serial.print(",");
 
-  Serial.print(pressure, 2); Serial.print(",");
-  Serial.print(temperature, 2); Serial.print(",");
-  Serial.println(altitude, 2);
+    Serial.print(pressure, 2); Serial.print(",");
+    Serial.print(temperature, 2); Serial.print(",");
+    Serial.println(altitude, 2);
 
-  delay(5);
+  }
 }
-
 
