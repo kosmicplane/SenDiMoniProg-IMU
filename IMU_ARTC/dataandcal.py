@@ -24,7 +24,7 @@ import numpy as np
 from scipy import linalg
 
 # ---------- USER SETTINGS ----------
-PORT = "//dev/ttyUSB0"              # change to your serial port if needed
+PORT = "COM3"              # change to your serial port if needed
 BAUD = 230400
 TIMEOUT = 1.0
 DEFAULT_N_SAMPLES = 1090
