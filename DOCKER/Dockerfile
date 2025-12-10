@@ -34,11 +34,11 @@ RUN echo "HOLA AMIGUITOS / Hello little friends / Ni Hao xiaopengyou / Bonjour l
 # -------------------------------
 # Gazebo Harmonic installation
 # -------------------------------
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -sSL https://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
-    apt-get update && apt-get install -y gz-harmonic && \
-    rm -rf /var/lib/apt/lists/*
+#RUN mkdir -p /etc/apt/keyrings && \
+#    curl -sSL https://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
+#    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
+#    apt-get update && apt-get install -y gz-harmonic && \
+#    rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
 # Additional system packages
