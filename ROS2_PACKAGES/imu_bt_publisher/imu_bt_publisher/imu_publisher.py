@@ -39,7 +39,7 @@ class BluetoothIMUPublisher(Node):
         self.connect_serial()
 
         # Madgwick: 50 Hz (porque timer de 0.02 s)
-        self.madgwick = Madgwick(beta=0.05, frequency=100)
+        self.madgwick = Madgwick(beta=0.05, frequency=40)
         self.q = np.array([1.0, 0.0, 0.0, 0.0])
 
         self.timer = self.create_timer(0.02, self.read_data)
