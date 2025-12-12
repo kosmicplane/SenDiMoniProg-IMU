@@ -1,6 +1,5 @@
 version: "3.8"
 
-# Default compose file mirrors the offline runtime configuration.
 x-app-base: &app_base
   image: badkitten:offline
   container_name: badkitten-offline

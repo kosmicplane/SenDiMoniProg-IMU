@@ -1,23 +1,19 @@
-
-
-xhost local:root
-#docker-compose -f docker-compose.yml up -d --build
-XAUTH=/tmp/.docker.xauth
-export DISPLAY=${DISPLAY:-:0}
 #!/bin/bash
+set -euo pipefail
 
-USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
-PROJECT_DIR="$USER_HOME/Desktop/SenDiMoniProg-IMU"
+# Legacy helper kept for convenience. Prefer the docker compose workflow documented in README.
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.offline.yml"
 
-cd "$PROJECT_DIR"
-echo "🔄 Updating repository before mounting..."
-echo "✅ Repository updated."
-docker run -it --rm \
-    --device=/dev/rfcomm0:/dev/rfcomm0 \
-    --net=host \
-    --env="DISPLAY=$DISPLAY" \
-    --env="QT_X11_NO_MITSHM=1" \
-    --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-    --volume="$XAUTH:$XAUTH" \
-    --privileged \
-    goodkitten:offline
+XAUTHORITY=${XAUTHORITY:-/tmp/.docker.xauth}
+export DISPLAY=${DISPLAY:-:0}
+export QT_X11_NO_MITSHM=1
+
+# Ensure X11 access for root inside the container.
+xhost local:root || true
+
+# Pre-create the Xauthority file so the mount always exists.
+touch "$XAUTHORITY"
+
+echo "Starting badkitten:offline via docker compose (offline run)..."
+docker compose -f "$COMPOSE_FILE" up --remove-orphans "$@"
