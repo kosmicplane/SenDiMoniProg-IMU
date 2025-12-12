@@ -144,6 +144,7 @@ class BluetoothIMUPublisher(Node):
                 self.q[1], self.q[2], self.q[3], self.q[0]
             )
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
+<<<<<<< HEAD
             print(
             f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
             f"[RAW] "
@@ -155,6 +156,49 @@ class BluetoothIMUPublisher(Node):
             f"ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, "
             f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
         except Exception as e:
+=======
+			# --------- Pretty print modular ---------
+			euler_s = (
+				f"✅ Euler[deg] "
+				f"R={roll_deg:7.2f}  P={pitch_deg:7.2f}  Y={yaw_deg:7.2f}"
+			)
+			
+			raw_acc_s  = f"RAW Acc[g]   ax={ax_g:+8.4f}  ay={ay_g:+8.4f}  az={az_g:+8.4f}"
+			raw_gyr_s  = f"RAW Gyr[dps] gx={gx_dps:+8.3f}  gy={gy_dps:+8.3f}  gz={gz_dps:+8.3f}"
+			raw_mag_s  = f"RAW Mag[uT]  mx={mx_uT:+9.3f}  my={my_uT:+9.3f}  mz={mz_uT:+9.3f}"
+			raw_baro_s = f"RAW Baro     p={pressure_hpa:8.2f} hPa  T={tempC:6.2f} C  Alt={altitude_m:8.2f} m"
+			
+			si_acc_s = (
+				f"SI  Acc[m/s2] ax={imu_raw.linear_acceleration.x:+8.3f}  "
+				f"ay={imu_raw.linear_acceleration.y:+8.3f}  "
+				f"az={imu_raw.linear_acceleration.z:+8.3f}"
+			)
+			si_gyr_s = (
+				f"SI  Gyr[rad/s] gx={imu_raw.angular_velocity.x:+8.3f}  "
+				f"gy={imu_raw.angular_velocity.y:+8.3f}  "
+				f"gz={imu_raw.angular_velocity.z:+8.3f}"
+			)
+			si_mag_s = (
+				f"SI  Mag[T]    mx={mag_msg.magnetic_field.x:+.6e}  "
+				f"my={mag_msg.magnetic_field.y:+.6e}  "
+				f"mz={mag_msg.magnetic_field.z:+.6e}"
+			)
+			
+			# Elige qué bloques imprimir (muy fácil de modular)
+			blocks = [
+				euler_s,
+				raw_acc_s,
+				raw_gyr_s,
+				raw_mag_s,
+				raw_baro_s,
+				si_acc_s,
+				si_gyr_s,
+				si_mag_s,
+			]
+			print(" | ".join(blocks))
+			# --------- end pretty print --------
+         except Exception as e:
+>>>>>>> 90317c18792e14c63cd0d412115b0771c4286028
             self.get_logger().warn(f"Parse error: {e}")
 
     def quaternion_to_euler(self, x, y, z, w):
