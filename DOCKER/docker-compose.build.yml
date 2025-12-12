@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  badkitten:
+    image: badkitten:offline
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: badkitten-build

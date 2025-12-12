@@ -1,6 +1,8 @@
-# 🐳 Docker Compose Dev Loop for ROS 2 Kilted
+# 🐳 Docker Compose Setup for ROS 2 Kilted
 
-This setup replaces the legacy `run_docker.bash` flow with **Docker Compose** optimized for a fast local inner-loop. The default Compose file mounts your local repository into the container so code changes are visible immediately without rebuilding. Rebuilds are only needed when system or Python dependencies change.
+This project now uses **Docker Compose** to build and run an offline-ready image for the **SenDiMoniProg-IMU** project.
+
+The container is designed to run with host networking, GUI support, and access to `/dev/rfcomm0`. The image is built **online** (requires internet), saved, and later executed **offline** without pulling or rebuilding.
 
 ---
 
@@ -48,40 +50,68 @@ docker compose -f DOCKER/docker-compose.yml up -d
 docker compose -f DOCKER/docker-compose.yml logs -f
 ```
 
-### Optional: reproducible run without bind mount
+---
 
-If you need to run without mounting the host repo, use the production override (no bind mount):
+## 🛠️ Build the offline image (ONLINE)
+
+From the `DOCKER` directory:
 
 ```bash
-docker compose -f DOCKER/docker-compose.yml -f DOCKER/docker-compose.prod.yml up
+docker compose -f docker-compose.build.yml build
+```
+
+Save the resulting image for transfer to offline machines:
+
+```bash
+docker save badkitten:offline -o badkitten_offline.tar
 ```
 
 ---
 
-## 🖥️ X11 forwarding notes
+## 📦 Load the image (OFFLINE)
 
-Allow local root access (required for GUI apps inside the container):
-
-```bash
-xhost +local:root
-```
-
-Ensure an Xauthority file exists and matches the Compose configuration (`DOCKER/.env` defaults to `/tmp/.docker.xauth`):
+On the offline machine, load the exported tarball:
 
 ```bash
-touch /tmp/.docker.xauth
+docker load -i badkitten_offline.tar
 ```
-
-The Compose files already mount `/tmp/.X11-unix` and `${XAUTHORITY}` and set `DISPLAY` and `QT_X11_NO_MITSHM=1`.
 
 ---
 
-## 🧰 Helper script (optional)
+## ▶️ Run the container (OFFLINE)
 
-You can still use the wrapper to run the default Compose file:
+Use Docker Compose (no pull/build during runtime):
 
 ```bash
-./DOCKER/run_docker.bash
+docker compose -f docker-compose.offline.yml up
+```
+
+The Compose file mirrors the previous `docker run` flags:
+- `privileged: true`
+- `devices: /dev/rfcomm0:/dev/rfcomm0`
+- `network_mode: host` (default; see profiles below)
+- GUI-friendly environment variables and X11 mounts
+- `pull_policy: "never"` to avoid online pulls at runtime
+- `stdin_open: true` and `tty: true` for interactive shells
+
+### Optional profiles
+- **dev**: mounts the host repo into `/home/SenDiMoniProg-IMU` for live development.
+
+  ```bash
+  docker compose -f docker-compose.offline.yml --profile dev up
+  ```
+
+- **offline_strict**: disables networking entirely (`network_mode: none`).
+
+  ```bash
+  docker compose -f docker-compose.offline.yml --profile offline_strict up
+  ```
+
+### Legacy helper script
+`run_docker.bash` now wraps the offline Compose file for convenience:
+
+```bash
+./run_docker.bash
 ```
 
 ---
@@ -112,3 +142,11 @@ Or launch a setup:
 ```bash
 ros2 launch imu_pkg imu_launch.py
 ```
+
+---
+
+## 📚 References
+
+- [Docker Official Documentation](https://docs.docker.com/engine/install/ubuntu/)
+- [ROS 2 Documentation](https://docs.ros.org/en/kilted/)
+- [Colcon Build Tool](https://colcon.readthedocs.io/en/released/)
