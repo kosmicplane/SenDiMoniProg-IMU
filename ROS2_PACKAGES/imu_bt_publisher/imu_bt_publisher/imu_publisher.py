@@ -144,16 +144,7 @@ class BluetoothIMUPublisher(Node):
                 self.q[1], self.q[2], self.q[3], self.q[0]
             )
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
-		    print(
-		    f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
-		    f"[RAW] "
-		    f"ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "
-		    f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | "
-		    f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | "
-		    f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || "
-		    f"[SI] "
-		    f"ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, "
-		    f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
+		    print(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "f"[RAW] "f"ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | "f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | "f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || "f"[SI] "f"ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, "f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
 
