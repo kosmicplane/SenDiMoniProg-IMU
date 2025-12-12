@@ -6,7 +6,7 @@ from std_msgs.msg import Float32
 import serial
 import time
 import numpy as np
-import math
+import mat
 from ahrs.filters import Madgwick
 
 # Constants
@@ -16,67 +16,66 @@ UT_TO_T  = 1e-6        # μT → T
 # Expected CSV format:
 # ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps, mx_uT, my_uT, mz_uT, pressure(hPa), altitude_m, tempC
 
+# Expected CSV format:
+# ax_g, ay_g, az_g,
+# gx_dps, gy_dps, gz_dps,
+# mx_uT, my_uT, mz_uT,
+# pressure(hPa), tempC, altitude_m
+
 class BluetoothIMUPublisher(Node):
     def __init__(self):
         super().__init__('bluetooth_imu_publisher')
 
-        # --- Publishers ---
-        self.imu_raw_pub = self.create_publisher(Imu, 'imu/data_raw', 10)
-        self.imu_fused_pub = self.create_publisher(Imu, 'imu/data', 10)
-        self.mag_pub  = self.create_publisher(MagneticField, 'imu/mag', 10)
-        self.pres_pub = self.create_publisher(FluidPressure, 'imu/pressure', 10)
-        self.temp_pub = self.create_publisher(Temperature, 'imu/temperature', 10)
-        self.alt_pub  = self.create_publisher(Float32, 'imu/altitude', 10)
+        self.imu_raw_pub   = self.create_publisher(Imu,           'imu/data_raw',   10)
+        self.imu_fused_pub = self.create_publisher(Imu,           'imu/data',       10)
+        self.mag_pub       = self.create_publisher(MagneticField, 'imu/mag',        10)
+        self.pres_pub      = self.create_publisher(FluidPressure, 'imu/pressure',   10)
+        self.temp_pub      = self.create_publisher(Temperature,   'imu/temperature',10)
+        self.alt_pub       = self.create_publisher(Float32,       'imu/altitude',   10)
 
-        # --- Serial Bluetooth configuration ---
         self.port = "/dev/rfcomm0"
         self.baudrate = 230400
         self.ser = None
         self.connect_serial()
 
-        # --- Madgwick filter initialization ---
-        self.madgwick = Madgwick(beta=0.05, frequency=50.0)
-        self.q = np.array([1.0, 0.0, 0.0, 0.0])  # initial quaternion [w, x, y, z]
-        # Timer ~50 Hz
+        # Madgwick: 50 Hz (porque timer de 0.02 s)
+        self.madgwick = Madgwick(beta=0.05, frequency=100)
+        self.q = np.array([1.0, 0.0, 0.0, 0.0])
+
         self.timer = self.create_timer(0.02, self.read_data)
-
         self.get_logger().info("✅ IMU Bluetooth publisher with Madgwick fusion started")
-
-    def connect_serial(self):
-        while self.ser is None:
-            try:
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05)
-                self.get_logger().info(f"✅ Connected to {self.port}")
-            except Exception as e:
-                self.get_logger().error(f"Retrying connection: {e}")
-                time.sleep(2)
-
-    def read_data(self):
-        try:
-            line = self.ser.readline().decode(errors='ignore').strip()
-            if not line:
-                return
-            self.process_line(line)
-        except Exception as e:
-            self.get_logger().warn(f"Read error: {e}")
-
+    def connect_serial(self): 
+	while self.ser is None: 
+		try: self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05) 
+			self.get_logger().info(f"✅ Connected to {self.port}") 
+		except Exception as e: 
+			self.get_logger().error(f"Retrying connection: {e}") 
+			time.sleep(2)
+    def read_data(self): 
+	try: 
+		line = self.ser.readline().decode(errors='ignore').strip() 
+	if not line: 
+		return self.process_line(line) 
+	except Exception as e: 
+		self.get_logger().warn(f"Read error: {e}")
     def process_line(self, line: str):
         try:
             parts = [p.strip() for p in line.split(',')]
             if len(parts) != 12:
-                return  # Incomplete or noisy line
+                return
 
             # --- Parse CSV fields ---
             ax_g, ay_g, az_g = map(float, parts[0:3])
             gx_dps, gy_dps, gz_dps = map(float, parts[3:6])
             mx_uT, my_uT, mz_uT = map(float, parts[6:9])
+
             pressure_hpa = float(parts[9])
-            altitude_m   = float(parts[10])
-            tempC        = float(parts[11])
-            
+            tempC        = float(parts[10])   # 🔧 CORREGIDO
+            altitude_m   = float(parts[11])   # 🔧 CORREGIDO
+
             now = self.get_clock().now().to_msg()
 
-            # --- Build raw IMU message (no orientation) ---
+            # --- Raw IMU message (ROS en SI) ---
             imu_raw = Imu()
             imu_raw.header.frame_id = "imu_link"
             imu_raw.header.stamp = now
@@ -85,14 +84,14 @@ class BluetoothIMUPublisher(Node):
             imu_raw.linear_acceleration.y = ay_g * G_TO_MS2
             imu_raw.linear_acceleration.z = az_g * G_TO_MS2
 
-            # Convert deg/s → rad/s for ROS compatibility
+            # deg/s → rad/s
             imu_raw.angular_velocity.x = math.radians(gx_dps)
             imu_raw.angular_velocity.y = math.radians(gy_dps)
             imu_raw.angular_velocity.z = math.radians(gz_dps)
 
             self.imu_raw_pub.publish(imu_raw)
 
-            # --- Magnetic field message ---
+            # --- MagneticField message (Tesla) ---
             mag_msg = MagneticField()
             mag_msg.header = imu_raw.header
             mag_msg.magnetic_field.x = mx_uT * UT_TO_T
@@ -115,14 +114,17 @@ class BluetoothIMUPublisher(Node):
             alt_msg.data = altitude_m
             self.alt_pub.publish(alt_msg)
 
-            # --- Madgwick sensor fusion (accelerometer + gyro + mag) ---
+            # --- Madgwick fusion ---
             acc = np.array([ax_g, ay_g, az_g]) * G_TO_MS2
-            gyr = np.radians(np.array([gx_dps, gy_dps, gz_dps]))  # rad/s
+            gyr = 0.017453292519*np.radians(np.array([gx_dps, gy_dps, gz_dps]))  # rad/s
             mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T       # Tesla
 
+            # Si quieres usar solo IMU:
             self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
-            
-            # --- Build fused IMU message (orientation included) ---
+
+            # Si tu versión soporta magnetómetro, prueba en vez de lo anterior:
+            # self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
+
             imu_fused = Imu()
             imu_fused.header = imu_raw.header
             imu_fused.orientation.w = self.q[0]
@@ -134,11 +136,13 @@ class BluetoothIMUPublisher(Node):
 
             self.imu_fused_pub.publish(imu_fused)
 
-            # --- Compute and print Euler angles ---
-            roll, pitch, yaw = self.quaternion_to_euler(self.q[1], self.q[2], self.q[3], self.q[0])
-            roll, pitch, yaw = map(math.degrees, [roll, pitch, yaw])
+            # --- Euler para imprimir en GRADOS ---
+            roll, pitch, yaw = self.quaternion_to_euler(
+                self.q[1], self.q[2], self.q[3], self.q[0]
+            )
+            roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
 
-            print(f"✅ Roll={roll:6.2f}°, Pitch={pitch:6.2f}°, Yaw={yaw:6.2f}° | "
+            print(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
                   f"T={tempC:.2f}°C, Alt={altitude_m:.2f} m")
 
         except Exception as e:
