@@ -1,18 +1,8 @@
-# 🐳 Docker Setup for ROS 2 Kilted
+# 🐳 Docker Compose Setup for ROS 2 Kilted
 
-This project provides a Dockerized environment to run **ROS 2 Kilted** with all required dependencies for the **SenDiMoniProg-IMU** project.  
+This project now uses **Docker Compose** to build and run an offline-ready image for the **SenDiMoniProg-IMU** project.
 
-By using Docker, contributors can run the same development environment without conflicts between ROS versions, Python packages, or system dependencies.
-
----
-
-## 🎯 Why Dockerize ROS 2 Kilted?
-
-- Avoids version conflicts (ROS distributions, Python, system libraries).  
-- Provides a reproducible development environment.  
-- Simplifies onboarding of new contributors.  
-- Allows running GUI tools (RViz, Gazebo, rqt) from inside the container.  
-- Ensures everyone uses the same ROS 2 Kilted setup.  
+The container is designed to run with host networking, GUI support, and access to `/dev/rfcomm0`. The image is built **online** (requires internet), saved, and later executed **offline** without pulling or rebuilding.
 
 ---
 
@@ -60,35 +50,69 @@ newgrp docker
 docker --version
 ```
 
-Expected output (your case):
+---
 
+## 🛠️ Build the offline image (ONLINE)
+
+From the `DOCKER` directory:
+
+```bash
+docker compose -f docker-compose.build.yml build
 ```
-Docker version 28.4.0, build d8eb465
+
+Save the resulting image for transfer to offline machines:
+
+```bash
+docker save badkitten:offline -o badkitten_offline.tar
 ```
 
 ---
 
-## 🛠️ Build the Docker Image
+## 📦 Load the image (OFFLINE)
 
-From the `DOCKER` directory in this repository:
+On the offline machine, load the exported tarball:
 
 ```bash
-sudo docker build -t badkitten .
+docker load -i badkitten_offline.tar
 ```
-
-This will create an image named **badkitten** using the provided `Dockerfile`.
 
 ---
 
-## ▶️ Run the Container
+## ▶️ Run the container (OFFLINE)
 
-Simply use the provided script:
+Use Docker Compose (no pull/build during runtime):
 
 ```bash
-sudo ./run_docker.bash
+docker compose -f docker-compose.offline.yml up
 ```
 
-This script runs the container with the correct settings (network, display, volumes, privileges).
+The Compose file mirrors the previous `docker run` flags:
+- `privileged: true`
+- `devices: /dev/rfcomm0:/dev/rfcomm0`
+- `network_mode: host` (default; see profiles below)
+- GUI-friendly environment variables and X11 mounts
+- `pull_policy: "never"` to avoid online pulls at runtime
+- `stdin_open: true` and `tty: true` for interactive shells
+
+### Optional profiles
+- **dev**: mounts the host repo into `/home/SenDiMoniProg-IMU` for live development.
+
+  ```bash
+  docker compose -f docker-compose.offline.yml --profile dev up
+  ```
+
+- **offline_strict**: disables networking entirely (`network_mode: none`).
+
+  ```bash
+  docker compose -f docker-compose.offline.yml --profile offline_strict up
+  ```
+
+### Legacy helper script
+`run_docker.bash` now wraps the offline Compose file for convenience:
+
+```bash
+./run_docker.bash
+```
 
 ---
 
@@ -98,7 +122,7 @@ Once inside, source ROS 2 and the workspace:
 
 ```bash
 source /opt/ros/kilted/setup.bash
-[ -f install/setup.bash ] && source install/setup.bash
+[ -f /home/SenDiMoniProg-IMU/install/setup.bash ] && source /home/SenDiMoniProg-IMU/install/setup.bash
 ```
 
 Build your packages:
@@ -123,7 +147,6 @@ ros2 launch imu_pkg imu_launch.py
 
 ## 📚 References
 
-- [Docker Official Documentation](https://docs.docker.com/engine/install/ubuntu/)  
-- [ROS 2 Documentation](https://docs.ros.org/en/kilted/)  
+- [Docker Official Documentation](https://docs.docker.com/engine/install/ubuntu/)
+- [ROS 2 Documentation](https://docs.ros.org/en/kilted/)
 - [Colcon Build Tool](https://colcon.readthedocs.io/en/released/)
-
