@@ -6,7 +6,7 @@ from std_msgs.msg import Float32
 import serial
 import time
 import numpy as np
-import mat
+import math
 from ahrs.filters import Madgwick
 
 # Constants
@@ -44,20 +44,23 @@ class BluetoothIMUPublisher(Node):
 
         self.timer = self.create_timer(0.02, self.read_data)
         self.get_logger().info("✅ IMU Bluetooth publisher with Madgwick fusion started")
-    def connect_serial(self): 
-	while self.ser is None: 
-		try: self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05) 
-			self.get_logger().info(f"✅ Connected to {self.port}") 
-		except Exception as e: 
-			self.get_logger().error(f"Retrying connection: {e}") 
-			time.sleep(2)
-    def read_data(self): 
-	try: 
-		line = self.ser.readline().decode(errors='ignore').strip() 
-	if not line: 
-		return self.process_line(line) 
-	except Exception as e: 
-		self.get_logger().warn(f"Read error: {e}")
+    def connect_serial(self):
+        while self.ser is None:
+            try:
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05)
+                self.get_logger().info(f"✅ Connected to {self.port}")
+            except Exception as e:
+                self.get_logger().error(f"Retrying connection: {e}")
+                time.sleep(2)
+    def read_data(self):
+        try:
+            line = self.ser.readline().decode(errors='ignore').strip()
+            if not line:
+                return
+            self.process_line(line)
+        except Exception as e:
+            self.get_logger().warn(f"Read error: {e}")
+
     def process_line(self, line: str):
         try:
             parts = [p.strip() for p in line.split(',')]
