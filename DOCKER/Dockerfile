@@ -21,7 +21,7 @@ RUN mkdir -p /opt/repo
 WORKDIR /opt
 
 # Clone project repository at build time
-RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git repo
+RUN git clone --depth 1 https://github.com/kosmicplane/SenDiMoniProg-IMU.git /opt/repo
 #RUN git pull
 # Copy repo to /home inside image (avoid overwriting with host volume)
 RUN mkdir -p /home/SenDiMoniProg-IMU && \
