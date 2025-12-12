@@ -120,10 +120,10 @@ class BluetoothIMUPublisher(Node):
             mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T       # Tesla
 
             # Si quieres usar solo IMU:
-            self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
+            #self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
 
             # Si tu versión soporta magnetómetro, prueba en vez de lo anterior:
-            # self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
+            self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
 
             imu_fused = Imu()
             imu_fused.header = imu_raw.header
@@ -143,7 +143,7 @@ class BluetoothIMUPublisher(Node):
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
 
             print(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
-                  f"T={tempC:.2f}°C, Alt={altitude_m:.2f} m")
+                  f"ax={imu_raw.linear_acceleration.x:6.2f}m/s2, ay={imu_raw.linear_acceleration.y:6.2f}m/s2,az={imu_raw.linear_acceleration.z:6.2f}m/s2, Alt={altitude_m:.2f} m")
 
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
