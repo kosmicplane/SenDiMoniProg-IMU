@@ -1,0 +1,26 @@
+# VCS and editor files
+.git
+.gitignore
+*.swp
+*.swo
+*.DS_Store
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+install/
+log/
+logs/
+.colcon*
+
+# Large assets
+*.bag
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bz2
+*.7z

@@ -18,7 +18,6 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${XAUTHORITY:-/tmp/.docker.xauth}:/tmp/.docker.xauth:rw
-      - ..:/home/SenDiMoniProg-IMU
     stdin_open: true
     tty: true
     pull_policy: never
