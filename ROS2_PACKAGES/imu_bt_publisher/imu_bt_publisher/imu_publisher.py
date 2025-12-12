@@ -29,7 +29,9 @@ class BluetoothIMUPublisher(Node):
         self.baudrate = 230400
         self.ser = None
         self.connect_serial()
-
+        # en __init__
+        self.last_print_ns = 0
+        self.print_period_ns = int(1e9 / 10)  # 10 Hz
         # Timer = 0.02s => 50 Hz (ponlo igual en Madgwick)
         self.madgwick = Madgwick(beta=0.05, frequency=50)
         self.q = np.array([1.0, 0.0, 0.0, 0.0])
@@ -40,7 +42,7 @@ class BluetoothIMUPublisher(Node):
     def connect_serial(self):
         while self.ser is None:
             try:
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.05)
+                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.0)
                 self.get_logger().info(f"✅ Connected to {self.port}")
             except Exception as e:
                 self.get_logger().error(f"Retrying connection: {e}")
@@ -48,12 +50,14 @@ class BluetoothIMUPublisher(Node):
 
     def read_data(self):
         try:
-            line = self.ser.readline().decode(errors='ignore').strip()
-            if not line:
+            if self.ser.in_waiting == 0:
                 return
-            self.process_line(line)
+            line = self.ser.readline().decode(errors='ignore').strip()
+            if line:
+                self.process_line(line)
         except Exception as e:
             self.get_logger().warn(f"Read error: {e}")
+
 
     def process_line(self, line: str):
         try:
@@ -136,7 +140,10 @@ class BluetoothIMUPublisher(Node):
                 self.q[1], self.q[2], self.q[3], self.q[0]
             )
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
-
+            now_ns = self.get_clock().now().nanoseconds
+            if now_ns - self.last_print_ns >= self.print_period_ns:
+                self.last_print_ns = now_ns
+                print(" | ".join(blocks), flush=True)
             print(
                 f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
                 f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "
