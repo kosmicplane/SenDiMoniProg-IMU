@@ -118,8 +118,8 @@ class BluetoothIMUPublisher(Node):
 
             # OJO: en ahrs, normalmente se usa updateIMU/updateMARG.
             # Si "update(...)" te da error, cambia a updateMARG:
-            # self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
-            self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
+            self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
+            # self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
 
             imu_fused = Imu()
             imu_fused.header = imu_raw.header
