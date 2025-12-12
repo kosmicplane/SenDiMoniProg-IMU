@@ -126,7 +126,7 @@ class BluetoothIMUPublisher(Node):
             #self.q = self.madgwick.updateIMU(self.q, gyr=gyr, acc=acc)
 
             # Si tu versión soporta magnetómetro, prueba en vez de lo anterior:
-            self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
+            self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
 
             imu_fused = Imu()
             imu_fused.header = imu_raw.header
