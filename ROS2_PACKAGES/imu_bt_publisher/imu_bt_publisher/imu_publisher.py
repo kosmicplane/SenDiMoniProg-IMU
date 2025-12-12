@@ -184,7 +184,7 @@ class BluetoothIMUPublisher(Node):
 			]
 			print(" | ".join(blocks))
 			# --------- end pretty print --------
-        except Exception as e:
+         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
 
     def quaternion_to_euler(self, x, y, z, w):
