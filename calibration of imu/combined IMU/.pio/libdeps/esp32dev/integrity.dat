@@ -1,0 +1,5 @@
+pololu/LPS@ ^3.1.0
+bblanchon/ArduinoJson@ ^7.4.2
+adafruit/Adafruit BMP280 Library@^2.1.0
+pololu/LIS3MDL@ ^2.0.0
+pololu/LSM6@ ^2.0.1

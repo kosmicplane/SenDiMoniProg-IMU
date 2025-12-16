@@ -21,24 +21,23 @@ RUN mkdir -p /opt/repo
 WORKDIR /opt
 
 # Clone project repository at build time
-RUN git clone http://github.com/kosmicplane/SenDiMoniProg-IMU.git repo
-
+RUN git clone --depth 1 https://github.com/kosmicplane/SenDiMoniProg-IMU.git /opt/repo
+#RUN git pull
 # Copy repo to /home inside image (avoid overwriting with host volume)
 RUN mkdir -p /home/SenDiMoniProg-IMU && \
-    cp -r /opt/repo/* /home/SenDiMoniProg-IMU/ && \
+    cp -a /opt/repo/. /home/SenDiMoniProg-IMU/ && \
     rm -rf /opt/repo
-
 # Friendly greeting
 RUN echo "HOLA AMIGUITOS / Hello little friends / Ni Hao xiaopengyou / Bonjour les petits amis / Hallo kleine Freunde / Ciao piccoli amici / Привет маленькие друзья"
 
 # -------------------------------
 # Gazebo Harmonic installation
 # -------------------------------
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -sSL https://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
-    apt-get update && apt-get install -y gz-harmonic && \
-    rm -rf /var/lib/apt/lists/*
+#RUN mkdir -p /etc/apt/keyrings && \
+#    curl -sSL https://packages.osrfoundation.org/gazebo.gpg | gpg --dearmor -o /etc/apt/keyrings/gazebo.gpg && \
+#    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" > /etc/apt/sources.list.d/gazebo-stable.list && \
+#    apt-get update && apt-get install -y gz-harmonic && \
+#    rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
 # Additional system packages

@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   app:
-    image: badkitten:latest
+    image: goodkitten:offline
     container_name: micontenedor
     volumes:
       - ./data:/app/data

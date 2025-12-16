@@ -11,11 +11,7 @@ PROJECT_DIR="$USER_HOME/Desktop/SenDiMoniProg-IMU"
 
 cd "$PROJECT_DIR"
 echo "🔄 Updating repository before mounting..."
-<<<<<<< HEAD
 echo "✅ Repository updated."
-
-=======
->>>>>>> 3d478198205f01e105933bc721210b8ff1bad7b7
 docker run -it --rm \
     --device=/dev/rfcomm0:/dev/rfcomm0 \
     --net=host \
