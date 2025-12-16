@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import numpy as np
-from scipy import linalg
+from scipy import linalg    
 
 # ---------- USER SETTINGS ----------
 PORT = "//dev/ttyUSB0"              # change to your serial port if needed
