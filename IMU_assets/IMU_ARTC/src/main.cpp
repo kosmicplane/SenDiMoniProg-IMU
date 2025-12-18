@@ -77,7 +77,7 @@ void loop() {
     mag.read();
     float pressure = ps.readPressureMillibars();
     float temperature = ps.readTemperatureC();
-    float altitude = ps.pressureToAltitudeMeters(pressure, 1016.9f); // 1007.9hPa 為當地海平面氣壓 每天可能會不一樣 需要校正
+    float altitude = ps.pressureToAltitudeMeters(pressure, 1016.9f); //  為當地海平面氣壓 每天可能會不一樣 需要校正
     
     constexpr float rad_conv = 3.14159265358979323846f / 180.0f;
 
@@ -90,9 +90,9 @@ void loop() {
     float gy = imu.g.y *  0.004375f * rad_conv;
     float gz = imu.g.z *  0.004375f * rad_conv;
 
-    float mx = mag.m.x * 0.00014616f;       // Gauss (±4 gauss FS)
-    float my = mag.m.y * 0.00014616f;
-    float mz = mag.m.z * 0.00014616f;
+    float mx = mag.m.x * 0.14616f;       // Gauss (±4 mgauss FS)
+    float my = mag.m.y * 0.14616f;
+    float mz = mag.m.z * 0.14616f;
 
     // Output all sensor data in CSV
     Serial.print(ax, 5); Serial.print(",");
