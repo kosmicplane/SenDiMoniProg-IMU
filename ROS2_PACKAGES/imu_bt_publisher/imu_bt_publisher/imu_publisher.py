@@ -38,7 +38,8 @@ class BluetoothIMUPublisher(Node):
 
         self.timer = self.create_timer(0.02, self.read_data)
         self.get_logger().info("✅ IMU Bluetooth publisher with Madgwick fusion started")
-
+        self.last_print = time.monotonic()
+        self.rx_buf = ""
     def connect_serial(self):
         while self.ser is None:
             try:
@@ -49,14 +50,27 @@ class BluetoothIMUPublisher(Node):
                 time.sleep(2)
 
     def read_data(self):
-        try:
-            if self.ser.in_waiting == 0:
-                return
-            line = self.ser.readline().decode(errors='ignore').strip()
-            if line:
-                self.process_line(line)
-        except Exception as e:
-            self.get_logger().warn(f"Read error: {e}")
+	    try:
+	        n = self.ser.in_waiting
+	        if n == 0:
+	            return
+
+	        data = self.ser.read(n).decode(errors='ignore')
+	        self.rx_buf += data
+
+	        # Procesa todas las líneas completas, y te quedas con la última
+	        last_line = None
+	        while '\n' in self.rx_buf:
+	            line, self.rx_buf = self.rx_buf.split('\n', 1)
+	            line = line.strip()
+	            if line:
+	                last_line = line
+
+	        if last_line is not None:
+	            self.process_line(last_line)
+
+	    except Exception as e:
+	        self.get_logger().warn(f"Read error: {e}")
 
 
     def process_line(self, line: str):
@@ -140,20 +154,10 @@ class BluetoothIMUPublisher(Node):
                 self.q[1], self.q[2], self.q[3], self.q[0]
             )
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
-            now_ns = self.get_clock().now().nanoseconds
-            if now_ns - self.last_print_ns >= self.print_period_ns:
-                self.last_print_ns = now_ns
-                print(" | ".join(blocks), flush=True)
-            print(
-                f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "
-                f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "
-                f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | "
-                f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | "
-                f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || "
-                f"[SI] ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, "
-                f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2"
-            )
-
+            now_m = time.monotonic()
+	    if now_m - self.last_print > 0.5:
+	      self.last_print = now_m
+	      self.get_logger().info(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | " f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | " f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | " f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | " f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || " f"[SI] ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, " f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
         except Exception as e:
             self.get_logger().warn(f"Parse error: {e}")
 
