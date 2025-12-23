@@ -29,17 +29,19 @@ class BluetoothIMUPublisher(Node):
         self.baudrate = 230400
         self.ser = None
         self.connect_serial()
+	self.last_t = time.monotonic()
         # en __init__
         self.last_print_ns = 0
         self.print_period_ns = int(1e9 / 10)  # 10 Hz
         # Timer = 0.02s => 50 Hz (ponlo igual en Madgwick)
-        self.madgwick = Madgwick(beta=0.05, frequency=50)
+        self.madgwick = Madgwick(beta=0.2, frequency=50)
         self.q = np.array([1.0, 0.0, 0.0, 0.0])
 
         self.timer = self.create_timer(0.02, self.read_data)
         self.get_logger().info("✅ IMU Bluetooth publisher with Madgwick fusion started")
         self.last_print = time.monotonic()
         self.rx_buf = ""
+
     def connect_serial(self):
         while self.ser is None:
             try:
@@ -71,7 +73,6 @@ class BluetoothIMUPublisher(Node):
 
 	    except Exception as e:
 	        self.get_logger().warn(f"Read error: {e}")
-
 
     def process_line(self, line: str):
         try:
@@ -130,12 +131,17 @@ class BluetoothIMUPublisher(Node):
             self.alt_pub.publish(alt_msg)
 
             # --- Madgwick fusion ---
-            acc = np.array([ax_g, ay_g, az_g]) * G_TO_MS2
+            acc = np.array([ax_g, ay_g, az_g])
             gyr = np.radians(np.array([gx_dps, gy_dps, gz_dps]))  # rad/s
             mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T       # Tesla
 
             # OJO: en ahrs, normalmente se usa updateIMU/updateMARG.
             # Si "update(...)" te da error, cambia a updateMARG:
+	    now_t = time.monotonic()
+	    dt = now_t - self.last_t
+	    self.last_t = now_t
+	    self.madgwick.frequency = 1.0 / max(dt, 1e-3)
+
             self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
             # self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
 
