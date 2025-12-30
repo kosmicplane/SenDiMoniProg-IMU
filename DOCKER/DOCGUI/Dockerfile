@@ -29,7 +29,8 @@ RUN mkdir -p /etc/apt/keyrings && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/gazebo.gpg] \
     http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" \
     > /etc/apt/sources.list.d/gazebo-stable.list && \
-    apt-get update && apt-get install -y gz-harmonic
+    apt-get update && apt-get install -y gz-harmonic && \
+    rm -rf /var/lib/apt/lists/*
 
 # 🔹 ROS–Gazebo + RViz + herramientas gráficas
 RUN apt-get update && apt-get install -y \
@@ -59,11 +60,20 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --no-cache-dir --break-system-packages \
     numpy scipy matplotlib pandas openpyxl ahrs
 
-# 🔹 Clonar el proyecto
-WORKDIR /home
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git
+# ===============================================================
+# 🔹 Clonar y almacenar el proyecto
+# ===============================================================
+WORKDIR /opt
+RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git repo
 
+# Copia a /home en la imagen (evita depender de volúmenes)
+RUN mkdir -p /home/SenDiMoniProg-IMU && \
+    cp -r /opt/repo/* /home/SenDiMoniProg-IMU/ && \
+    rm -rf /opt/repo
+
+# ===============================================================
 # 🔹 Variables de entorno ROS/Gazebo/FastDDS
+# ===============================================================
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 ENV ROS_DOMAIN_ID=42
 ENV FASTDDS_DEFAULT_PROFILES_FILE=/home/SenDiMoniProg-IMU/DOCKER/DOCGUI/faster_profile.xml
@@ -72,10 +82,12 @@ ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
 ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
 ENV ROS_LOCALHOST_ONLY=0
 
+# ===============================================================
 # 🔹 Entrypoint mejorado
+# ===============================================================
 RUN echo '#!/bin/bash\n\
 source /opt/ros/kilted/setup.bash\n\
-echo "🚀 ROS 2 + RViz + AHRS Ready."\n\
+echo "🚀 ROS 2 + RViz + AHRS listo para funcionar sin Internet."\n\
 exec bash' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
