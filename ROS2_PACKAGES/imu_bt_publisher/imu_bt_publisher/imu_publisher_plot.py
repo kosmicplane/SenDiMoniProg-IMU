@@ -3,7 +3,8 @@ import serial
 import time
 from collections import deque
 from datetime import datetime
-
+import sys
+import os
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
@@ -223,7 +224,9 @@ def main():
         if records:
             df = pd.DataFrame.from_records(records)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            csv_path = f"imu_log_{ts}.csv"
+            out_dir = os.path.expanduser("~/imu_logs")
+            os.makedirs(out_dir, exist_ok=True)
+            csv_path = os.path.join(out_dir, f"imu_log_{ts}.csv")
             df.to_csv(csv_path, index=False)
             print(f"💾 Saved CSV: {csv_path}  | rows: {len(df)}", flush=True)
         else:
