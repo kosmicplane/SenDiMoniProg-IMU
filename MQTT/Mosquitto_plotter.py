@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-import serial
 import time
+import os
 from collections import deque
 from datetime import datetime
-import sys
-import os
+import threading
+import queue
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import pandas as pd
 
-import pandas as pd  # DataFrame + CSV export
+import paho.mqtt.client as mqtt
 
-PORT = "/dev/rfcomm0"
-BAUDRATE = 230400
+# ----------------------------
+# MQTT configuration
+# ----------------------------
+BROKER_HOST = "YOUR_BROKER_HOST_OR_IP"
+BROKER_PORT = 1883
+MQTT_USER = ""      # optional
+MQTT_PASS = ""      # optional
 
-# UI refresh rate (does NOT need to match IMU send rate)
+TOPIC_RAW = "imu/jetson01/raw"   # must match Jetson publisher topic
+
+# ----------------------------
+# UI / logging configuration
+# ----------------------------
 PLOT_HZ = 20.0
-
-# Visible time window (seconds) in the plots
 WINDOW_SEC = 10.0
 
 # Logging rate to DataFrame to avoid huge files.
-# - Set STORE_HZ = 0 to store EVERY valid sample received.
+# - Set STORE_HZ = 0 to store EVERY received sample (can be large).
 STORE_HZ = 50.0
 STORE_PERIOD = (1.0 / STORE_HZ) if STORE_HZ > 0 else 0.0
 
@@ -32,16 +41,6 @@ FIELDS = [
     "p_hpa", "t_C", "alt_m"
 ]
 
-def connect_serial():
-    """Open /dev/rfcomm0 in non-blocking mode. Retry until success."""
-    while True:
-        try:
-            ser = serial.Serial(PORT, BAUDRATE, timeout=0)
-            print(f"✅ Connected to {PORT}", flush=True)
-            return ser
-        except Exception as e:
-            print(f"⚠️  Retrying connection: {e}", flush=True)
-            time.sleep(1)
 
 def parse_csv12(line: str):
     """Parse one CSV line with 12 float fields. Return dict or None if invalid."""
@@ -54,11 +53,73 @@ def parse_csv12(line: str):
     except ValueError:
         return None
 
-def main():
-    ser = connect_serial()
 
-    # Raw receive buffer (because serial reads can split lines)
-    rx_buf = ""
+def make_mqtt_client(msg_queue: "queue.Queue[str]"):
+    """
+    Create an MQTT client that pushes payload strings into msg_queue.
+    We keep MQTT in a background thread to not block Matplotlib UI.
+    """
+    client_id = f"pc-plot-{int(time.time())}"
+    c = mqtt.Client(client_id=client_id, clean_session=True, protocol=mqtt.MQTTv311)
+
+    if MQTT_USER:
+        c.username_pw_set(MQTT_USER, MQTT_PASS)
+
+    c.reconnect_delay_set(min_delay=1, max_delay=30)
+
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("✅ MQTT connected", flush=True)
+            client.subscribe(TOPIC_RAW, qos=0)
+            print(f"✅ Subscribed to {TOPIC_RAW}", flush=True)
+        else:
+            print(f"⚠️  MQTT connect failed rc={rc}", flush=True)
+
+    def on_disconnect(client, userdata, rc):
+        print(f"⚠️  MQTT disconnected rc={rc} (will retry)", flush=True)
+
+    def on_message(client, userdata, msg):
+        # Payload is the CSV line (bytes) -> decode to str
+        try:
+            payload = msg.payload.decode("utf-8", errors="ignore").strip()
+            if payload:
+                # Keep queue from growing unbounded: drop old if too many
+                # (We want "latest" for real-time view)
+                if msg_queue.qsize() > 200:
+                    try:
+                        while msg_queue.qsize() > 50:
+                            msg_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                msg_queue.put_nowait(payload)
+        except Exception:
+            pass
+
+    c.on_connect = on_connect
+    c.on_disconnect = on_disconnect
+    c.on_message = on_message
+
+    return c
+
+
+def main():
+    # Thread-safe queue for MQTT -> UI
+    msg_queue: "queue.Queue[str]" = queue.Queue()
+
+    mqttc = make_mqtt_client(msg_queue)
+
+    # Connect MQTT (retry loop)
+    while True:
+        try:
+            mqttc.connect(BROKER_HOST, BROKER_PORT, keepalive=30)
+            break
+        except Exception as e:
+            print(f"⚠️  MQTT retry: {e}", flush=True)
+            time.sleep(2)
+
+    mqttc.loop_start()
+
+    # Keep latest parsed sample
     last_sample = None
 
     # Circular buffers for plotting (sliding window)
@@ -85,7 +146,7 @@ def main():
 
     ax_text.axis("off")
     text_artist = ax_text.text(
-        0.01, 0.5, "Waiting for data...",
+        0.01, 0.5, "Waiting for MQTT data...",
         va="center", ha="left", fontsize=12, family="monospace"
     )
 
@@ -114,13 +175,10 @@ def main():
     ax_mag.grid(True)
     ax_mag.legend(loc="upper right")
 
-    fig.suptitle("ESP32 IMU — Live Plot + Dashboard + CSV logger", fontsize=14)
+    fig.suptitle("Jetson IMU via MQTT — Live Plot + Dashboard + CSV logger", fontsize=14)
 
     def maybe_store(sample, now_mono):
-        """
-        Store samples at STORE_HZ to avoid file bloat.
-        If STORE_HZ == 0, store every valid sample received.
-        """
+        """Store samples at STORE_HZ to avoid file bloat. STORE_HZ==0 stores all."""
         nonlocal last_store_t
 
         if STORE_HZ <= 0:
@@ -139,37 +197,40 @@ def main():
                 **sample
             })
 
-    def poll_serial():
+    def poll_mqtt():
         """
-        Read all currently available bytes, split into lines, parse valid samples.
-        Keep only the latest valid sample for UI, and log at STORE_HZ.
+        Drain all queued MQTT messages and keep only the newest valid sample.
+        This prevents lag/backlog and keeps the UI real-time.
         """
-        nonlocal rx_buf, last_sample
-        try:
-            n = ser.in_waiting
-            if n:
-                rx_buf += ser.read(n).decode("utf-8", errors="ignore")
-                while "\n" in rx_buf:
-                    line, rx_buf = rx_buf.split("\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    sample = parse_csv12(line)
-                    if sample is not None:
-                        last_sample = sample
-                        maybe_store(sample, time.monotonic())
-        except (serial.SerialException, OSError):
-            # If the link drops, the UI will keep showing the last sample.
-            pass
+        nonlocal last_sample
+        newest = None
+        while True:
+            try:
+                payload = msg_queue.get_nowait()
+            except queue.Empty:
+                break
+            newest = payload
+
+        if newest is None:
+            return
+
+        sample = parse_csv12(newest)
+        if sample is not None:
+            last_sample = sample
+            maybe_store(sample, time.monotonic())
 
     def update(_frame):
-        """Matplotlib animation callback: read serial, update dashboard + plots."""
+        """Matplotlib animation callback: read MQTT queue, update dashboard + plots."""
         nonlocal last_sample
 
-        poll_serial()
+        poll_mqtt()
 
         if last_sample is None:
-            text_artist.set_text("Waiting for data... (Is ESP32 sending lines ending with \\n?)")
+            text_artist.set_text(
+                f"Waiting for MQTT data...\n"
+                f"Broker: {BROKER_HOST}:{BROKER_PORT}\n"
+                f"Topic: {TOPIC_RAW}"
+            )
             return (text_artist, acc_l1, acc_l2, acc_l3, gyr_l1, gyr_l2, gyr_l3, mag_l1, mag_l2, mag_l3)
 
         now = time.monotonic() - t0
@@ -178,7 +239,7 @@ def main():
         # Append to plot buffers (at UI rate)
         t.append(now)
 
-        acc_x.append(s["ax_g"]); acc_y.append(s["ay_g"]); acc_z.append(s["az_g"])
+        acc_x.append(s["ax_g"]);  acc_y.append(s["ay_g"]);  acc_z.append(s["az_g"])
         gyr_x.append(s["gx_dps"]); gyr_y.append(s["gy_dps"]); gyr_z.append(s["gz_dps"])
         mag_x.append(s["mx_uT"]);  mag_y.append(s["my_uT"]);  mag_z.append(s["mz_uT"])
 
@@ -202,7 +263,7 @@ def main():
         if len(t) > 2:
             ax_acc.set_xlim(max(0.0, t[-1] - WINDOW_SEC), t[-1])
 
-        # Auto-scale Y (keep X fixed)
+        # Auto-scale Y
         ax_acc.relim(); ax_acc.autoscale_view(scalex=False, scaley=True)
         ax_gyr.relim(); ax_gyr.autoscale_view(scalex=False, scaley=True)
         ax_mag.relim(); ax_mag.autoscale_view(scalex=False, scaley=True)
@@ -217,20 +278,3 @@ def main():
         plt.show()
     finally:
         try:
-            ser.close()
-        except Exception:
-            pass
-
-        if records:
-            df = pd.DataFrame.from_records(records)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            out_dir = os.path.expanduser("~/imu_logs")
-            os.makedirs(out_dir, exist_ok=True)
-            csv_path = os.path.join(out_dir, f"imu_log_{ts}.csv")
-            df.to_csv(csv_path, index=False)
-            print(f"💾 Saved CSV: {csv_path}  | rows: {len(df)}", flush=True)
-        else:
-            print("⚠️ No samples saved (records is empty).", flush=True)
-
-if __name__ == "__main__":
-    main()
