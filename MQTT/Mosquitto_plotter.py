@@ -278,3 +278,22 @@ def main():
         plt.show()
     finally:
         try:
+            mqttc.loop_stop()
+            mqttc.disconnect()
+        except Exception:
+            pass
+
+        if records:
+            df = pd.DataFrame.from_records(records)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out_dir = os.path.expanduser("~/imu_logs")
+            os.makedirs(out_dir, exist_ok=True)
+            csv_path = os.path.join(out_dir, f"imu_log_{ts}.csv")
+            df.to_csv(csv_path, index=False)
+            print(f"💾 Saved CSV: {csv_path}  | rows: {len(df)}", flush=True)
+        else:
+            print("⚠️ No samples saved (records is empty).", flush=True)
+
+
+if __name__ == "__main__":
+    main()
