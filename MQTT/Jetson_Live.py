@@ -14,7 +14,7 @@ SER_BAUD = 230400
 # ----------------------------
 BROKER_HOST = "test.mosquitto.org"
 #BROKER_HOST = "test.mosquitto.org"
-BROKER_PORT = 1883  # use 8883 for TLS
+BROKER_PORT = 1883
 MQTT_USER = ""      # optional
 MQTT_PASS = ""      # optional
 
