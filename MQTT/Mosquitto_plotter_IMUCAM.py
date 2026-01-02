@@ -23,9 +23,9 @@ BROKER_PORT = 1883
 MQTT_USER = ""      # optional
 MQTT_PASS = ""      # optional
 
-TOPIC_RAW   = "imu/jetson01/raw"         # IMU: CSV 12 fields (same format as before)
-TOPIC_COLOR = "cam/jetson01/color_jpg"   # Camera: JPEG bytes (BGR/JPG from Jetson)
-TOPIC_DEPTH = "cam/jetson01/depth_jpg"   # Camera depth preview: JPEG bytes (optional)
+TOPIC_RAW   = "imu/jetson01/raw"         # IMU: CSV 12 fields
+TOPIC_COLOR = "cam/jetson01/color_jpg"   # Camera: JPEG bytes
+TOPIC_DEPTH = "cam/jetson01/depth_jpg"   # Depth preview: JPEG bytes (optional)
 
 SHOW_DEPTH = True  # set False if you don't publish depth
 
@@ -35,10 +35,14 @@ SHOW_DEPTH = True  # set False if you don't publish depth
 PLOT_HZ = 20.0
 WINDOW_SEC = 10.0
 
-# Logging rate to DataFrame to avoid huge files.
-# - Set STORE_HZ = 0 to store EVERY received sample (can be large).
+# IMU logging rate to DataFrame to avoid huge files.
+# - Set STORE_HZ = 0 to store EVERY received IMU sample (can be large).
 STORE_HZ = 50.0
 STORE_PERIOD = (1.0 / STORE_HZ) if STORE_HZ > 0 else 0.0
+
+# Camera decode/display control (helps reduce lag)
+CAM_FPS = 8.0                      # decode/display at most this rate
+CAM_PERIOD = 1.0 / CAM_FPS
 
 # Expected CSV layout: 12 values per line
 FIELDS = [
@@ -65,7 +69,8 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
     """
     Create an MQTT client:
       - pushes IMU CSV payloads into imu_queue
-      - decodes JPEG frames for color/depth and stores latest frames into `frames`
+      - stores ONLY latest JPEG bytes for color/depth in frames (no decode here)
+        to avoid backlog/lag.
     """
     client_id = f"pc-plot-{int(time.time())}"
     c = mqtt.Client(client_id=client_id, clean_session=True, protocol=mqtt.MQTTv311)
@@ -106,20 +111,15 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
                     imu_queue.put_nowait(payload)
                 return
 
-            # Camera: JPEG bytes
+            # Camera: store latest bytes ONLY (decode in UI loop)
             if msg.topic == TOPIC_COLOR or (SHOW_DEPTH and msg.topic == TOPIC_DEPTH):
-                arr = np.frombuffer(msg.payload, dtype=np.uint8)
-                bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                if bgr is None:
-                    return
-                rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-
                 with frame_lock:
                     if msg.topic == TOPIC_COLOR:
-                        frames["color"] = rgb
+                        frames["color_jpg"] = msg.payload
+                        frames["color_ts"] = time.monotonic()
                     else:
-                        frames["depth"] = rgb
-                    frames["t_last"] = time.monotonic()
+                        frames["depth_jpg"] = msg.payload
+                        frames["depth_ts"] = time.monotonic()
                 return
 
         except Exception:
@@ -132,13 +132,29 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
     return c
 
 
+def decode_jpg_to_rgb(jpg_bytes: bytes):
+    """Decode JPEG bytes to RGB numpy array, or None."""
+    if not jpg_bytes:
+        return None
+    arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
+    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if bgr is None:
+        return None
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
 def main():
     # Thread-safe queue for IMU MQTT -> UI
     imu_queue: "queue.Queue[str]" = queue.Queue()
 
-    # Latest camera frames shared between MQTT callback and Matplotlib update()
+    # Latest JPEG frames shared between MQTT callback and Matplotlib update()
     frame_lock = threading.Lock()
-    frames = {"color": None, "depth": None, "t_last": 0.0}
+    frames = {
+        "color_jpg": None,
+        "depth_jpg": None,
+        "color_ts": 0.0,
+        "depth_ts": 0.0,
+    }
 
     mqttc = make_mqtt_client(imu_queue, frame_lock, frames)
 
@@ -171,7 +187,6 @@ def main():
 
     # ---- Figure layout: text + images + 3 plots ----
     fig = plt.figure()
-    # 5 rows: dashboard, images, acc, gyr, mag
     gs = fig.add_gridspec(5, 1, height_ratios=[1.2, 3.0, 2.0, 2.0, 2.0])
 
     ax_text = fig.add_subplot(gs[0])
@@ -231,7 +246,7 @@ def main():
     fig.suptitle("Jetson IMU + Camera via MQTT — Live Plot + Dashboard + CSV logger", fontsize=14)
 
     def maybe_store(sample, now_mono):
-        """Store samples at STORE_HZ to avoid file bloat. STORE_HZ==0 stores all."""
+        """Store IMU samples at STORE_HZ to avoid file bloat. STORE_HZ==0 stores all."""
         nonlocal last_store_t
 
         if STORE_HZ <= 0:
@@ -272,35 +287,61 @@ def main():
             last_sample = sample
             maybe_store(sample, time.monotonic())
 
+    # Camera decode throttling state
+    last_cam_draw = 0.0
+    cached_color_rgb = None
+    cached_depth_rgb = None
+    cached_color_ts = 0.0
+    cached_depth_ts = 0.0
+
     def update(_frame):
         """Matplotlib animation callback: update camera + IMU plots."""
-        nonlocal last_sample
+        nonlocal last_sample, last_cam_draw
+        nonlocal cached_color_rgb, cached_depth_rgb, cached_color_ts, cached_depth_ts
 
         # --- IMU ---
         poll_mqtt_imu()
 
-        # --- Camera ---
-        with frame_lock:
-            c = frames["color"].copy() if frames["color"] is not None else None
-            d = frames["depth"].copy() if (SHOW_DEPTH and frames["depth"] is not None) else None
-            t_last = frames["t_last"]
+        # --- Camera (decode only latest, at CAM_FPS) ---
+        now_m = time.monotonic()
+        if (now_m - last_cam_draw) >= CAM_PERIOD:
+            last_cam_draw = now_m
+            with frame_lock:
+                color_jpg = frames["color_jpg"]
+                depth_jpg = frames["depth_jpg"] if SHOW_DEPTH else None
+                color_ts  = frames["color_ts"]
+                depth_ts  = frames["depth_ts"]
 
-        if c is not None:
-            color_artist.set_data(c)
-            age = time.monotonic() - t_last if t_last > 0 else 0.0
-            ax_img_color.set_title(f"Color (age {age:.2f}s)")
+            # Decode only if there is something new (or first time)
+            if color_jpg is not None and color_ts != cached_color_ts:
+                rgb = decode_jpg_to_rgb(color_jpg)
+                if rgb is not None:
+                    cached_color_rgb = rgb
+                    cached_color_ts = color_ts
+
+            if SHOW_DEPTH and depth_jpg is not None and depth_ts != cached_depth_ts:
+                rgb = decode_jpg_to_rgb(depth_jpg)
+                if rgb is not None:
+                    cached_depth_rgb = rgb
+                    cached_depth_ts = depth_ts
+
+        # Update image artists using cached frames (fast)
+        if cached_color_rgb is not None:
+            color_artist.set_data(cached_color_rgb)
+            age = (time.monotonic() - cached_color_ts) if cached_color_ts > 0 else 0.0
+            ax_img_color.set_title(f"Color (age {age:.2f}s, cam_fps {CAM_FPS:.1f})")
         else:
             ax_img_color.set_title("Color (waiting...)")
 
         if SHOW_DEPTH and depth_artist is not None:
-            if d is not None:
-                depth_artist.set_data(d)
-                age = time.monotonic() - t_last if t_last > 0 else 0.0
-                ax_img_depth.set_title(f"Depth (age {age:.2f}s)")
+            if cached_depth_rgb is not None:
+                depth_artist.set_data(cached_depth_rgb)
+                age = (time.monotonic() - cached_depth_ts) if cached_depth_ts > 0 else 0.0
+                ax_img_depth.set_title(f"Depth (age {age:.2f}s, cam_fps {CAM_FPS:.1f})")
             else:
                 ax_img_depth.set_title("Depth (waiting...)")
 
-        # --- Dashboard + plots ---
+        # --- Dashboard + IMU plots ---
         if last_sample is None:
             text_artist.set_text(
                 f"Waiting for MQTT IMU data...\n"
