@@ -41,7 +41,7 @@ STORE_HZ = 50.0
 STORE_PERIOD = (1.0 / STORE_HZ) if STORE_HZ > 0 else 0.0
 
 # Camera decode/display control (helps reduce lag)
-CAM_FPS = 5                     # decode/display at most this rate
+CAM_FPS = 60                    # decode/display at most this rate
 CAM_PERIOD = 1.0 / CAM_FPS
 
 # Expected CSV layout: 12 values per line
