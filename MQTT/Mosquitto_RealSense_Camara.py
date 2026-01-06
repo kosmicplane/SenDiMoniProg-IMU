@@ -22,7 +22,7 @@ DEPTH_W, DEPTH_H, DEPTH_FPS = 320, 240, 15
 
 PUB_HZ = 20
 PUB_PERIOD = 1.0 / PUB_HZ
-JPEG_QUALITY = 20
+JPEG_QUALITY = 40 
 
 PUBLISH_DEPTH = True          # ✅ publish metric depth
 ALIGN_DEPTH_TO_COLOR = True   # keep aligned pixels for click->distance
