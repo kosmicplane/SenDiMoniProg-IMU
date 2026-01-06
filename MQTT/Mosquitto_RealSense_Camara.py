@@ -18,8 +18,8 @@ TOPIC_DEPTH = "cam/jetson01/depth_jpg"   # optional
 TOPIC_META  = "cam/jetson01/meta"
 
 # ---------- Camera / publish tuning ----------
-COLOR_W, COLOR_H, COLOR_FPS = 320, 240, 15
-DEPTH_W, DEPTH_H, DEPTH_FPS = 320, 240, 15
+COLOR_W, COLOR_H, COLOR_FPS = 424, 240, 15
+DEPTH_W, DEPTH_H, DEPTH_FPS = 424, 240, 15
 
 PUB_HZ = 20                  # publish rate over LTE
 PUB_PERIOD = 1.0 / PUB_HZ
