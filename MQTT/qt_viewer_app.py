@@ -190,28 +190,34 @@ class SharedState:
                 last_imu_ts=self.last_imu_ts,
             )
 
+
 def make_qimage_from_rgb(rgb: np.ndarray) -> Optional[QtGui.QImage]:
-    if rgb is None or rgb.ndim != 3 or rgb.shape[2] != 3:
+    if rgb is None:
         return None
-    rgb = np.ascontiguousarray(rgb)
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        return None
+
+    rgb = np.ascontiguousarray(rgb)  # IMPORTANT
     h, w, _ = rgb.shape
     bytes_per_line = 3 * w
-    img = QtGui.QImage(rgb.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
-    return img.copy()
+
+    img = QtGui.QImage(
+        rgb.data, w, h, bytes_per_line,
+        QtGui.QImage.Format.Format_RGB888
+    )
+    return img.copy()  # deep copy (safe after rgb is freed)
 
 
-def decode_image_any(payload: bytes) -> Optional[QtGui.QImage]:
+def decode_jpg(payload: bytes) -> Optional[QtGui.QImage]:
     if not payload:
         return None
     arr = np.frombuffer(payload, dtype=np.uint8)
-
-    # cv2.imdecode soporta JPG/PNG automáticamente
     bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if bgr is None:
         return None
-
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return make_qimage_from_rgb(rgb)
+
 
 
 def decode_depth_png(payload: bytes) -> Optional[np.ndarray]:
@@ -416,7 +422,7 @@ class DecoderWorker(threading.Thread):
                 continue
 
             if topic == TOPIC_COLOR:
-                image = decode_image_any(payload)
+                image = decode_jpg(payload)
                 if image is not None:
                     self.frames.update_color(image, ts, len(payload))
                 else:
