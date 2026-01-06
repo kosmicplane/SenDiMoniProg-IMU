@@ -24,7 +24,7 @@ except ImportError:
     # PyQt6
     from PyQt6 import QtCore, QtGui, QtWidgets
     Signal = QtCore.pyqtSignal
-    Slot = QtCore.pyqtslot
+    Slot = QtCore.pyqtSlot
 
 BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
