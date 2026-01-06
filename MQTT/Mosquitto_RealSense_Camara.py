@@ -16,8 +16,8 @@ TOPIC_DEPTH16 = "cam/jetson01/depth_png16"  # ✅ raw depth for metric distance
 TOPIC_META  = "cam/jetson01/meta"
 
 # ---------- Camera / publish tuning ----------
-COLOR_W, COLOR_H, COLOR_FPS = 320, 240, 15
-DEPTH_W, DEPTH_H, DEPTH_FPS = 320, 240, 15
+COLOR_W, COLOR_H, COLOR_FPS = 640, 480, 15
+DEPTH_W, DEPTH_H, DEPTH_FPS = 640, 480, 15
 
 PUB_HZ = 20
 PUB_PERIOD = 1.0 / PUB_HZ
