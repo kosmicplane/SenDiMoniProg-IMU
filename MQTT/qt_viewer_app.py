@@ -392,8 +392,8 @@ class DecoderWorker(threading.Thread):
 
 
 class VideoWidget(QtWidgets.QWidget):
-    clicked = QtCore.Signal(int, int)
-    moved = QtCore.Signal(int, int)
+    clicked = Signal(int, int)
+    moved = Signal(int, int)
 
     def __init__(self, title: str) -> None:
         super().__init__()
