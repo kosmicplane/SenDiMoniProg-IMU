@@ -194,9 +194,18 @@ class SharedState:
 def make_qimage_from_rgb(rgb: np.ndarray) -> Optional[QtGui.QImage]:
     if rgb is None:
         return None
+    if rgb.ndim != 3 or rgb.shape[2] != 3:
+        return None
+
+    rgb = np.ascontiguousarray(rgb)  # IMPORTANT
     h, w, _ = rgb.shape
-    image = QtGui.QImage(rgb.data, w, h, QtGui.QImage.Format.Format_RGB888)
-    return image.copy()
+    bytes_per_line = 3 * w
+
+    img = QtGui.QImage(
+        rgb.data, w, h, bytes_per_line,
+        QtGui.QImage.Format.Format_RGB888
+    )
+    return img.copy()  # deep copy (safe after rgb is freed)
 
 
 def decode_jpg(payload: bytes) -> Optional[QtGui.QImage]:
@@ -208,6 +217,7 @@ def decode_jpg(payload: bytes) -> Optional[QtGui.QImage]:
         return None
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return make_qimage_from_rgb(rgb)
+
 
 
 def decode_depth_png(payload: bytes) -> Optional[np.ndarray]:
@@ -396,11 +406,13 @@ class MqttClient(threading.Thread):
 
 
 class DecoderWorker(threading.Thread):
-    def __init__(self, frame_queue: BoundedQueue, frames: LatestFrames) -> None:
+    def __init__(self, frame_queue: BoundedQueue, frames: LatestFrames, log_cb=None) -> None:
         super().__init__(daemon=True)
         self.frame_queue = frame_queue
         self.frames = frames
+        self.log_cb = log_cb
         self._stop_event = threading.Event()
+        self._last_log = 0.0
 
     def run(self) -> None:
         while not self._stop_event.is_set():
@@ -413,19 +425,24 @@ class DecoderWorker(threading.Thread):
                 image = decode_jpg(payload)
                 if image is not None:
                     self.frames.update_color(image, ts, len(payload))
+                else:
+                    if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
+                        self._last_log = time.monotonic()
+                        self.log_cb(f"❌ decode color failed (bytes={len(payload)})")
 
             elif topic == TOPIC_DEPTH:
                 image = decode_jpg(payload)
                 if image is not None:
                     self.frames.update_depth(image, ts, len(payload))
+                else:
+                    if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
+                        self._last_log = time.monotonic()
+                        self.log_cb(f"❌ decode depth preview failed (bytes={len(payload)})")
 
             elif topic == TOPIC_DEPTH_Z16:
                 depth = decode_depth_png(payload)
                 if depth is not None:
                     self.frames.update_depth_raw(depth, len(payload))
-
-    def stop(self) -> None:
-        self._stop_event.set()
 
 
 class VideoWidget(QtWidgets.QWidget):
@@ -730,7 +747,9 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.state = SharedState()
         self.queue = BoundedQueue(MAX_QUEUE)
         self.logs: list[str] = []
-
+        self.decoder_thread = DecoderWorker(self.queue, self.frames, self.log)
+        self.decoder_thread.start()
+        
         self.mqtt_thread = MqttClient(self.queue, self.state, self.log)
         self.decoder_thread = DecoderWorker(self.queue, self.frames)
         self.decoder_thread.start()
