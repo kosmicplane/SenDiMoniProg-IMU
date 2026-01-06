@@ -140,6 +140,7 @@ This repo includes a Jetson publisher and a desktop UI that streams and visualiz
 - `cam/jetson01/meta` — JSON metadata (`seq`, `t_wall`, sizes, fps, intrinsics)
 - `cam/jetson01/calib` — JSON calibration snapshot (`intrinsics`, `depth_scale`)
 - `cam/jetson01/status` — JSON status/config snapshot
+- `cam/jetson01/imu` — JSON IMU sample (accel + gyro)
 
 **Control input**
 
@@ -154,7 +155,11 @@ Example control payload:
   "color_w": 424,
   "color_h": 240,
   "publish_depth_preview": true,
-  "publish_depth_raw": true
+  "publish_depth_z16": true,
+  "imu_enabled": true,
+  "imu_hz": 200,
+  "record_enabled": false,
+  "streaming_enabled": true
 }
 ```
 
@@ -175,9 +180,13 @@ Example control payload:
   "pub_fps": 19.8,
   "jpeg_quality": 20,
   "publish_depth_preview": true,
-  "publish_depth_raw": true,
+  "publish_depth_z16": true,
   "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
-  "depth_scale": 0.001
+  "depth_scale": 0.001,
+  "imu_enabled": true,
+  "imu_hz": 200,
+  "record_enabled": false,
+  "streaming_enabled": true
 }
 ```
 
@@ -195,11 +204,27 @@ Example control payload:
     "pub_hz": 20,
     "jpeg_quality": 20,
     "publish_depth_preview": true,
-    "publish_depth_raw": false
+    "publish_depth_z16": false,
+    "imu_enabled": true,
+    "imu_hz": 200,
+    "record_enabled": false,
+    "streaming_enabled": true
   },
   "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
   "depth_scale": 0.001,
   "t_wall": 1732576301.456
+}
+```
+
+**IMU (`cam/jetson01/imu`)**
+
+```json
+{
+  "t_wall": 1732576301.789,
+  "seq": 120,
+  "accel": {"x": 0.01, "y": 0.02, "z": 9.81},
+  "gyro": {"x": 0.001, "y": 0.002, "z": 0.003},
+  "imu_hz": 200
 }
 ```
 
@@ -211,7 +236,13 @@ Example control payload:
 python3 MQTT/Mosquitto_RealSense_Camara.py
 ```
 
-**UI (desktop):**
+**UI (desktop, Qt dashboard):**
+
+```bash
+python3 MQTT/qt_viewer_app.py
+```
+
+**Legacy UI (Matplotlib):**
 
 ```bash
 python3 MQTT/Mosquitto_plotter_IMUCAM.py
@@ -222,14 +253,13 @@ python3 MQTT/Mosquitto_plotter_IMUCAM.py
 If you do not have a RealSense available, the UI can run in **demo mode** to display synthetic frames:
 
 ```bash
-DEMO_MODE=1 python3 MQTT/Mosquitto_plotter_IMUCAM.py
+DEMO_MODE=1 python3 MQTT/qt_viewer_app.py
 ```
 
 ### Dependencies
 
 ```bash
-pip install paho-mqtt numpy opencv-python matplotlib pandas
+pip install paho-mqtt numpy opencv-python matplotlib pandas PySide6
 ```
 
 For the Jetson publisher, install **librealsense / pyrealsense2** for your platform.
-
