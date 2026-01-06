@@ -15,16 +15,26 @@ from typing import Any, Dict, Optional, Tuple
 import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
-try:
-    # PySide6
-    from PySide6 import QtCore, QtGui, QtWidgets
-    Signal = QtCore.Signal
-    Slot = QtCore.Slot
-except ImportError:
-    # PyQt6
-    from PyQt6 import QtCore, QtGui, QtWidgets
-    Signal = QtCore.pyqtSignal
-    Slot = QtCore.pyqtSlot
+from PyQt6 import QtCore, QtGui, QtWidgets
+
+# PyQt6 naming
+Signal = QtCore.pyqtSignal
+Slot = QtCore.pyqtSlot
+
+# Qt6 enum compatibility helpers (PyQt6 uses enum classes)
+Qt = QtCore.Qt
+ALIGN_CENTER = Qt.AlignmentFlag.AlignCenter
+ALIGN_RIGHT  = Qt.AlignmentFlag.AlignRight
+ALIGN_VCENTER = Qt.AlignmentFlag.AlignVCenter
+ALIGN_LEFT   = Qt.AlignmentFlag.AlignLeft
+ALIGN_TOP    = Qt.AlignmentFlag.AlignTop
+
+KEEP_ASPECT = Qt.AspectRatioMode.KeepAspectRatio
+SMOOTH_TRANSFORM = Qt.TransformationMode.SmoothTransformation
+LEFT_BUTTON = Qt.MouseButton.LeftButton
+AA_HINT = QtGui.QPainter.RenderHint.Antialiasing
+FONT_BOLD = QtGui.QFont.Weight.Bold
+
 
 BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -395,9 +405,8 @@ class DecoderWorker(threading.Thread):
 
 
 class VideoWidget(QtWidgets.QWidget):
-    clicked = Signal(int, int)
-    moved = Signal(int, int)
-    @Slot(int, int)
+    clicked = QtCore.Signal(int, int)
+    moved = QtCore.Signal(int, int)
     def __init__(self, title: str) -> None:
         super().__init__()
         self.setMinimumSize(320, 240)
