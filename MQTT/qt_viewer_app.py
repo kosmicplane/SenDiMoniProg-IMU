@@ -2,6 +2,7 @@
 """High-performance Qt dashboard for Jetson + RealSense MQTT streams (PyQt6)."""
 from __future__ import annotations
 
+from collections import deque
 import json
 import os
 import queue
@@ -11,7 +12,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
-
+from PyQt6.QtCharts import (
+    QChart,
+    QChartView,
+    QLineSeries,
+    QValueAxis
+)
 import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
@@ -541,8 +547,165 @@ class VideoWidget(QtWidgets.QWidget):
         if pt is not None:
             self.moved.emit(pt[0], pt[1])
 
+class ImuPlotWidget(QtWidgets.QWidget):
+    def __init__(self, parent=None, max_points=400, update_hz=15):
+        super().__init__(parent)
+        self.max_points = int(max_points)
+        self.update_hz = int(update_hz)
+        self._sample = 0
+
+        self._last_redraw = 0.0
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        title = QtWidgets.QLabel("IMU Plot (QtCharts) — Accel + Gyro")
+        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #c9d1d9;")
+        layout.addWidget(title)
+
+        # --- Accel chart ---
+        self.accel_chart = QChart()
+        self.accel_chart.setTitle("Accel (m/s²)")
+        self.accel_chart.legend().setVisible(True)
+
+        self.accel_series = {
+            "ax": QLineSeries(),
+            "ay": QLineSeries(),
+            "az": QLineSeries(),
+        }
+        for k, s in self.accel_series.items():
+            s.setName(k)
+            self.accel_chart.addSeries(s)
+
+        self.accel_axis_x = QValueAxis()
+        self.accel_axis_x.setTitleText("Samples")
+        self.accel_axis_x.setLabelFormat("%d")
+        self.accel_axis_x.setRange(0, self.max_points)
+
+        self.accel_axis_y = QValueAxis()
+        self.accel_axis_y.setTitleText("Value")
+
+        self.accel_chart.addAxis(self.accel_axis_x, Qt.AlignmentFlag.AlignBottom)
+        self.accel_chart.addAxis(self.accel_axis_y, Qt.AlignmentFlag.AlignLeft)
+
+        for s in self.accel_series.values():
+            s.attachAxis(self.accel_axis_x)
+            s.attachAxis(self.accel_axis_y)
+
+        self.accel_view = QChartView(self.accel_chart)
+        self.accel_view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+
+        # --- Gyro chart ---
+        self.gyro_chart = QChart()
+        self.gyro_chart.setTitle("Gyro (rad/s)")
+        self.gyro_chart.legend().setVisible(True)
+
+        self.gyro_series = {
+            "gx": QLineSeries(),
+            "gy": QLineSeries(),
+            "gz": QLineSeries(),
+        }
+        for k, s in self.gyro_series.items():
+            s.setName(k)
+            self.gyro_chart.addSeries(s)
+
+        self.gyro_axis_x = QValueAxis()
+        self.gyro_axis_x.setTitleText("Samples")
+        self.gyro_axis_x.setLabelFormat("%d")
+        self.gyro_axis_x.setRange(0, self.max_points)
+
+        self.gyro_axis_y = QValueAxis()
+        self.gyro_axis_y.setTitleText("Value")
+
+        self.gyro_chart.addAxis(self.gyro_axis_x, Qt.AlignmentFlag.AlignBottom)
+        self.gyro_chart.addAxis(self.gyro_axis_y, Qt.AlignmentFlag.AlignLeft)
+
+        for s in self.gyro_series.values():
+            s.attachAxis(self.gyro_axis_x)
+            s.attachAxis(self.gyro_axis_y)
+
+        self.gyro_view = QChartView(self.gyro_chart)
+        self.gyro_view.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+
+        # Layout: charts stacked
+        layout.addWidget(self.accel_view, 1)
+        layout.addWidget(self.gyro_view, 1)
+
+        # store min/max autoscale buffers
+        self._accel_min = 0.0
+        self._accel_max = 0.0
+        self._gyro_min = 0.0
+        self._gyro_max = 0.0
+
+    def _append(self, series: QLineSeries, x: int, y: float):
+        series.append(x, y)
+        if series.count() > self.max_points:
+            # remove oldest point
+            series.remove(0)
+
+    def push(self, imu: Dict[str, Any]) -> None:
+        # throttle chart redraw to update_hz
+        now = time.monotonic()
+        if self.update_hz > 0 and (now - self._last_redraw) < (1.0 / self.update_hz):
+            # still update internal series but avoid expensive axis computations too often
+            fast_only = True
+        else:
+            fast_only = False
+            self._last_redraw = now
+
+        accel = imu.get("accel", {}) if isinstance(imu.get("accel", {}), dict) else {}
+        gyro = imu.get("gyro", {}) if isinstance(imu.get("gyro", {}), dict) else {}
+
+        ax = float(accel.get("x", 0.0))
+        ay = float(accel.get("y", 0.0))
+        az = float(accel.get("z", 0.0))
+        gx = float(gyro.get("x", 0.0))
+        gy = float(gyro.get("y", 0.0))
+        gz = float(gyro.get("z", 0.0))
+
+        x = self._sample
+        self._sample += 1
+
+        self._append(self.accel_series["ax"], x, ax)
+        self._append(self.accel_series["ay"], x, ay)
+        self._append(self.accel_series["az"], x, az)
+
+        self._append(self.gyro_series["gx"], x, gx)
+        self._append(self.gyro_series["gy"], x, gy)
+        self._append(self.gyro_series["gz"], x, gz)
+
+        if fast_only:
+            return
+
+        # Update axis X ranges (rolling window)
+        x0 = max(0, x - self.max_points)
+        self.accel_axis_x.setRange(x0, x)
+        self.gyro_axis_x.setRange(x0, x)
+
+        # Auto-scale Y with padding (simple but effective)
+        accel_vals = [ax, ay, az]
+        gyro_vals = [gx, gy, gz]
+
+        self._accel_min = min(self._accel_min, *accel_vals) if self._sample > 1 else min(accel_vals)
+        self._accel_max = max(self._accel_max, *accel_vals) if self._sample > 1 else max(accel_vals)
+        self._gyro_min = min(self._gyro_min, *gyro_vals) if self._sample > 1 else min(gyro_vals)
+        self._gyro_max = max(self._gyro_max, *gyro_vals) if self._sample > 1 else max(gyro_vals)
+
+        def pad(lo, hi, p=0.1):
+            if lo == hi:
+                return lo - 1.0, hi + 1.0
+            span = hi - lo
+            return lo - span * p, hi + span * p
+
+        a_lo, a_hi = pad(self._accel_min, self._accel_max, 0.15)
+        g_lo, g_hi = pad(self._gyro_min, self._gyro_max, 0.15)
+
+        self.accel_axis_y.setRange(a_lo, a_hi)
+        self.gyro_axis_y.setRange(g_lo, g_hi)
 
 class DashboardWindow(QtWidgets.QMainWindow):
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Jetson RealSense Dashboard")
@@ -594,21 +757,28 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.demo_timer.timeout.connect(self.demo_update)
         if DEMO_MODE:
             self.demo_timer.start(33)
+    def _build_imu_plot_group(self) -> QtWidgets.QGroupBox:
+        group = QtWidgets.QGroupBox("IMU Plot (Accel + Gyro)")
+        layout = QtWidgets.QVBoxLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
 
+        self.imu_plot = ImuPlotWidget(max_points=400, update_hz=15)
+        self.imu_plot.setMinimumHeight(520)   # <<<< MAS GRANDE
+        layout.addWidget(self.imu_plot)
+
+        return group
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget()
-        main_layout = QtWidgets.QVBoxLayout(central)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
-
+        root = QtWidgets.QVBoxLayout(central)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+        # --- Header (igual que antes, pero sin pelear por espacio) ---
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(12)
 
-        # ---- logo placeholder ----
         logo_box = QtWidgets.QLabel()
         logo_box.setFixedSize(120, 60)
         logo_box.setAlignment(ALIGN_CENTER)
-
         logo_path = Path(__file__).parent / "assets" / "logo.png"
         if logo_path.exists():
             pix = QtGui.QPixmap(str(logo_path)).scaled(120, 60, KEEP_ASPECT, SMOOTH_TRANSFORM)
@@ -619,48 +789,93 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
         title_layout = QtWidgets.QVBoxLayout()
         self.title_label = QtWidgets.QLabel("Jetson + RealSense Streaming Dashboard")
-        self.title_label.setStyleSheet("font-size: 18px; font-weight: 600;")
+        self.title_label.setStyleSheet("font-size: 20px; font-weight: 700;")
         self.status_label = QtWidgets.QLabel("Disconnected")
-        self.status_label.setStyleSheet("color: #f85149; font-weight: 600;")
+        self.status_label.setStyleSheet("color: #f85149; font-weight: 700;")
         title_layout.addWidget(self.title_label)
         title_layout.addWidget(self.status_label)
 
         self.quick_stats = QtWidgets.QLabel("Latency: -- ms | RX FPS: -- | Dropped: --")
         self.quick_stats.setAlignment(ALIGN_RIGHT | ALIGN_VCENTER)
+        self.quick_stats.setStyleSheet("font-size: 14px; color: #c9d1d9;")
 
         header.addWidget(logo_box, 0)
         header.addLayout(title_layout, 1)
         header.addWidget(self.quick_stats, 0)
 
-        body_layout = QtWidgets.QHBoxLayout()
-        body_layout.setSpacing(12)
+        root.addLayout(header)
 
-        video_layout = QtWidgets.QVBoxLayout()
-        video_layout.setSpacing(12)
+        # --- Main area: Splitter left (videos) / right (tabs) ---
+        main_split = QtWidgets.QSplitter(Qt.Orientation.Horizontal)
+        main_split.setChildrenCollapsible(False)
+
+        # LEFT: videos in vertical splitter (each can be resized)
+        video_split = QtWidgets.QSplitter(Qt.Orientation.Vertical)
+        video_split.setChildrenCollapsible(False)
+
         self.color_widget = VideoWidget("Color")
         self.depth_widget = VideoWidget("Depth")
-        video_layout.addWidget(self.color_widget, 3)
-        video_layout.addWidget(self.depth_widget, 2)
 
-        side_panel = QtWidgets.QVBoxLayout()
-        side_panel.setSpacing(10)
-        side_panel.setContentsMargins(0, 0, 0, 0)
+        # hazlos más grandes por default
+        self.color_widget.setMinimumSize(640, 360)
+        self.depth_widget.setMinimumSize(640, 300)
 
-        side_panel.addWidget(self._build_controls_group())
-        side_panel.addWidget(self._build_stream_group())
-        side_panel.addWidget(self._build_record_group())
-        side_panel.addWidget(self._build_imu_group())
-        side_panel.addWidget(self._build_measure_group())
-        side_panel.addWidget(self._build_data_group())
-        side_panel.addWidget(self._build_log_group(), 1)
+        video_split.addWidget(self.color_widget)
+        video_split.addWidget(self.depth_widget)
+        video_split.setStretchFactor(0, 3)
+        video_split.setStretchFactor(1, 2)
 
-        body_layout.addLayout(video_layout, 3)
-        body_layout.addLayout(side_panel, 1)
+        main_split.addWidget(video_split)
 
-        main_layout.addLayout(header)
-        main_layout.addLayout(body_layout)
+        # RIGHT: tabs
+        tabs = QtWidgets.QTabWidget()
+        tabs.setDocumentMode(True)
 
+        # Tab 1: Controls + Settings (scroll)
+        settings_page = QtWidgets.QWidget()
+        settings_layout = QtWidgets.QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(8, 8, 8, 8)
+        settings_layout.setSpacing(10)
+
+        settings_layout.addWidget(self._build_controls_group())
+        settings_layout.addWidget(self._build_stream_group())
+        settings_layout.addWidget(self._build_record_group())
+        settings_layout.addWidget(self._build_imu_group())
+        settings_layout.addStretch(1)
+
+        settings_scroll = QtWidgets.QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        settings_scroll.setWidget(settings_page)
+
+        tabs.addTab(settings_scroll, "Controls & Settings")
+
+        # Tab 2: Telemetry (Data + IMU plot grande)
+        telemetry_page = QtWidgets.QWidget()
+        telemetry_layout = QtWidgets.QVBoxLayout(telemetry_page)
+        telemetry_layout.setContentsMargins(8, 8, 8, 8)
+        telemetry_layout.setSpacing(10)
+
+        telemetry_layout.addWidget(self._build_measure_group())
+        telemetry_layout.addWidget(self._build_data_group())
+
+        # IMU plot grande (lo agregamos abajo)
+        self.imu_plot_group = self._build_imu_plot_group()
+        telemetry_layout.addWidget(self.imu_plot_group, 1)
+
+        tabs.addTab(telemetry_page, "Telemetry")
+
+        # Tab 3: Logs
+        tabs.addTab(self._build_log_group(), "Logs")
+
+        main_split.addWidget(tabs)
+
+        # 70% video / 30% panel
+        main_split.setSizes([1100, 520])
+
+        root.addWidget(main_split, 1)
         self.setCentralWidget(central)
+
 
     def _build_controls_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Controls")
@@ -690,27 +905,35 @@ class DashboardWindow(QtWidgets.QMainWindow):
     def _build_stream_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Stream Settings")
         layout = QtWidgets.QFormLayout(group)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
+        layout.setLabelAlignment(ALIGN_LEFT)
+        layout.setFormAlignment(ALIGN_TOP)
+        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+
+        group.setStyleSheet("QGroupBox { font-size: 15px; font-weight: 600; }")
 
         self.pub_hz = QtWidgets.QSpinBox()
         self.pub_hz.setRange(1, 60)
         self.pub_hz.setValue(DEFAULT_CONTROL["pub_hz"])
+        self.pub_hz.setMinimumWidth(140)
 
         self.jpeg_quality = QtWidgets.QSpinBox()
         self.jpeg_quality.setRange(5, 95)
         self.jpeg_quality.setValue(DEFAULT_CONTROL["jpeg_quality"])
+        self.jpeg_quality.setMinimumWidth(140)
 
         self.color_fps = QtWidgets.QSpinBox()
         self.color_fps.setRange(1, 90)
         self.color_fps.setValue(DEFAULT_CONTROL["color_fps"])
+        self.color_fps.setMinimumWidth(140)
 
         self.resolution = QtWidgets.QComboBox()
+        self.resolution.setMinimumWidth(180)
         for w, h in RESOLUTION_OPTIONS:
             self.resolution.addItem(f"{w} x {h}", (w, h))
         self.resolution.setCurrentIndex(0)
 
         self.depth_preview = QtWidgets.QCheckBox("Depth preview")
-        self.depth_preview.setChecked(True)
         self.depth_z16 = QtWidgets.QCheckBox("Depth Z16")
         self.depth_z16.setChecked(DEFAULT_CONTROL["publish_depth_z16"])
 
@@ -722,6 +945,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         layout.addRow(self.depth_z16)
 
         return group
+
 
     def _build_record_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Recording")
@@ -1057,6 +1281,8 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.data_labels["dropped"].setText(str(dropped))
 
         imu = state.imu
+        if isinstance(state.imu, dict) and state.imu and hasattr(self, "imu_plot"):
+            self.imu_plot.push(state.imu)
         accel = imu.get("accel", {}) if isinstance(imu.get("accel", {}), dict) else {}
         gyro = imu.get("gyro", {}) if isinstance(imu.get("gyro", {}), dict) else {}
         accel_text = f"{accel.get('x', '--')} / {accel.get('y', '--')} / {accel.get('z', '--')}"
