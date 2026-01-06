@@ -22,18 +22,12 @@ DEPTH_W, DEPTH_H, DEPTH_FPS = 424, 240, 15
 
 PUB_HZ = 20
 PUB_PERIOD = 1.0 / PUB_HZ
-<<<<<<< HEAD
-JPEG_QUALITY = 4             # lower => smaller packets
-=======
 JPEG_QUALITY = 40 
-
 PUBLISH_DEPTH = True          # ✅ publish metric depth
 ALIGN_DEPTH_TO_COLOR = True   # keep aligned pixels for click->distance
 # Optional: also publish a pretty depth preview (costs bandwidth)
 PUBLISH_DEPTH_PREVIEW_JPG = False
 TOPIC_DEPTH_PREVIEW = "cam/jetson01/depth_preview_jpg"
->>>>>>> 919c54ef9bad51260378e28e5d4a6d5c31e7c207
-
 
 def mqtt_connect():
     cid = f"jetson01-cam-{int(time.time())}"
