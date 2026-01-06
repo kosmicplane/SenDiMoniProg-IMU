@@ -123,3 +123,113 @@ git push
 - [Git Best Practices](https://nvie.com/posts/a-successful-git-branching-model/)  
 - [Colcon Build System](https://colcon.readthedocs.io/en/released/)  
 - [Connecting to GitHub with SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
+
+---
+
+## 📷 MQTT RealSense Streaming + UI
+
+This repo includes a Jetson publisher and a desktop UI that streams and visualizes **color + depth** frames over MQTT.
+
+### ✅ Topics
+
+**Publisher output**
+
+- `cam/jetson01/color_jpg` — JPEG bytes (BGR) for the color camera
+- `cam/jetson01/depth_jpg` — JPEG bytes (colorized depth preview)
+- `cam/jetson01/depth_z16_png` — **aligned** depth as 16‑bit PNG (Z16)
+- `cam/jetson01/meta` — JSON metadata (`seq`, `t_wall`, sizes, fps, intrinsics)
+- `cam/jetson01/calib` — JSON calibration snapshot (`intrinsics`, `depth_scale`)
+- `cam/jetson01/status` — JSON status/config snapshot
+
+**Control input**
+
+- `cam/jetson01/control` — JSON config payload to change JPEG quality, FPS, resolution, and depth publishing **live**.
+
+Example control payload:
+
+```json
+{
+  "jpeg_quality": 20,
+  "pub_hz": 15,
+  "color_w": 424,
+  "color_h": 240,
+  "publish_depth_preview": true,
+  "publish_depth_raw": true
+}
+```
+
+### Message Formats
+
+**Meta (`cam/jetson01/meta`)**
+
+```json
+{
+  "seq": 120,
+  "t_wall": 1732576301.123,
+  "color_bytes": 14523,
+  "depth_bytes": 12310,
+  "depth_raw_bytes": 43218,
+  "w": 424,
+  "h": 240,
+  "pub_hz": 20,
+  "pub_fps": 19.8,
+  "jpeg_quality": 20,
+  "publish_depth_preview": true,
+  "publish_depth_raw": true,
+  "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
+  "depth_scale": 0.001
+}
+```
+
+**Status (`cam/jetson01/status`)**
+
+```json
+{
+  "config": {
+    "color_w": 424,
+    "color_h": 240,
+    "color_fps": 30,
+    "depth_w": 424,
+    "depth_h": 240,
+    "depth_fps": 30,
+    "pub_hz": 20,
+    "jpeg_quality": 20,
+    "publish_depth_preview": true,
+    "publish_depth_raw": false
+  },
+  "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
+  "depth_scale": 0.001,
+  "t_wall": 1732576301.456
+}
+```
+
+### How to Run
+
+**Publisher (Jetson / RealSense):**
+
+```bash
+python3 MQTT/Mosquitto_RealSense_Camara.py
+```
+
+**UI (desktop):**
+
+```bash
+python3 MQTT/Mosquitto_plotter_IMUCAM.py
+```
+
+### Demo Mode (no hardware)
+
+If you do not have a RealSense available, the UI can run in **demo mode** to display synthetic frames:
+
+```bash
+DEMO_MODE=1 python3 MQTT/Mosquitto_plotter_IMUCAM.py
+```
+
+### Dependencies
+
+```bash
+pip install paho-mqtt numpy opencv-python matplotlib pandas
+```
+
+For the Jetson publisher, install **librealsense / pyrealsense2** for your platform.
+
