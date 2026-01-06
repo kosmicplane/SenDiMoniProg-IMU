@@ -20,7 +20,7 @@ TOPIC_META  = "cam/jetson01/meta"
 COLOR_W, COLOR_H, COLOR_FPS = 424, 240, 15
 DEPTH_W, DEPTH_H, DEPTH_FPS = 424, 240, 15
 
-PUB_HZ = 60
+PUB_HZ = 40
 PUB_PERIOD = 1.0 / PUB_HZ
 JPEG_QUALITY = 20 
 PUBLISH_DEPTH = True          # ✅ publish metric depth
