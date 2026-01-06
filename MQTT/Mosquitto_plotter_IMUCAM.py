@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-import time
+import json
 import os
+import queue
+import threading
+import time
 from collections import deque
 from datetime import datetime
-import threading
-import queue
+from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
 import cv2
+import numpy as np
+import pandas as pd
+import paho.mqtt.client as mqtt
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-import pandas as pd
-
-import paho.mqtt.client as mqtt
+from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 
 # ----------------------------
 # MQTT configuration
@@ -23,38 +25,70 @@ BROKER_PORT = 1883
 MQTT_USER = ""      # optional
 MQTT_PASS = ""      # optional
 
-TOPIC_RAW   = "imu/jetson01/raw"         # IMU: CSV 12 fields
+TOPIC_RAW = "imu/jetson01/raw"           # IMU: CSV 12 fields
 TOPIC_COLOR = "cam/jetson01/color_jpg"   # Camera: JPEG bytes
 TOPIC_DEPTH = "cam/jetson01/depth_jpg"   # Depth preview: JPEG bytes (optional)
+TOPIC_DEPTH_RAW = "cam/jetson01/depth_z16_png"
+TOPIC_META = "cam/jetson01/meta"
+TOPIC_CONTROL = "cam/jetson01/control"
+TOPIC_STATUS = "cam/jetson01/status"
+TOPIC_CALIB = "cam/jetson01/calib"
 
-SHOW_DEPTH = True  # set False if you don't publish depth
+SHOW_DEPTH = True  # set False if you don't publish depth preview
 
 # ----------------------------
 # UI / logging configuration
 # ----------------------------
 PLOT_HZ = 20.0
 WINDOW_SEC = 10.0
-
-# IMU logging rate to DataFrame to avoid huge files.
-# - Set STORE_HZ = 0 to store EVERY received IMU sample (can be large).
 STORE_HZ = 50.0
 STORE_PERIOD = (1.0 / STORE_HZ) if STORE_HZ > 0 else 0.0
 
-# Camera decode/display control (helps reduce lag)
-CAM_FPS = 30                    # decode/display at most this rate
+CAM_FPS = 30
 CAM_PERIOD = 1.0 / CAM_FPS
+
+DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
 
 # Expected CSV layout: 12 values per line
 FIELDS = [
     "ax_g", "ay_g", "az_g",
     "gx_dps", "gy_dps", "gz_dps",
     "mx_uT", "my_uT", "mz_uT",
-    "p_hpa", "t_C", "alt_m"
+    "p_hpa", "t_C", "alt_m",
 ]
 
 
-def parse_csv12(line: str):
-    """Parse one CSV line with 12 float fields. Return dict or None if invalid."""
+class SharedFrames:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.data: Dict[str, Any] = {
+            "color_rgb": None,
+            "depth_rgb": None,
+            "depth_raw": None,
+            "color_ts": 0.0,
+            "depth_ts": 0.0,
+            "depth_raw_ts": 0.0,
+            "color_recv_fps": 0.0,
+            "depth_recv_fps": 0.0,
+        }
+
+    def update(self, key: str, value: Any, ts: float, ts_key: str, fps_key: Optional[str] = None) -> None:
+        with self.lock:
+            self.data[key] = value
+            self.data[ts_key] = ts
+            if fps_key:
+                prev_ts = self.data.get(f"{fps_key}_prev_ts", 0.0)
+                if prev_ts > 0:
+                    fps = 1.0 / max(1e-6, ts - prev_ts)
+                    self.data[fps_key] = fps
+                self.data[f"{fps_key}_prev_ts"] = ts
+
+    def snapshot(self) -> Dict[str, Any]:
+        with self.lock:
+            return dict(self.data)
+
+
+def parse_csv12(line: str) -> Optional[Dict[str, float]]:
     parts = [p.strip() for p in line.split(",")]
     if len(parts) != 12:
         return None
@@ -65,13 +99,32 @@ def parse_csv12(line: str):
         return None
 
 
-def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, frames: dict):
-    """
-    Create an MQTT client:
-      - pushes IMU CSV payloads into imu_queue
-      - stores ONLY latest JPEG bytes for color/depth in frames (no decode here)
-        to avoid backlog/lag.
-    """
+def decode_jpg_to_rgb(jpg_bytes: bytes) -> Optional[np.ndarray]:
+    if not jpg_bytes:
+        return None
+    arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
+    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if bgr is None:
+        return None
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+def decode_png16(depth_bytes: bytes) -> Optional[np.ndarray]:
+    if not depth_bytes:
+        return None
+    arr = np.frombuffer(depth_bytes, dtype=np.uint8)
+    depth = cv2.imdecode(arr, cv2.IMREAD_UNCHANGED)
+    if depth is None or depth.dtype != np.uint16:
+        return None
+    return depth
+
+
+def make_mqtt_client(
+    imu_queue: "queue.Queue[str]",
+    frame_queue: "queue.Queue[Tuple[str, bytes, float]]",
+    meta_state: Dict[str, Any],
+    meta_lock: threading.Lock,
+):
     client_id = f"pc-plot-{int(time.time())}"
     c = mqtt.Client(client_id=client_id, clean_session=True, protocol=mqtt.MQTTv311)
 
@@ -85,10 +138,14 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
             print("✅ MQTT connected", flush=True)
             client.subscribe(TOPIC_RAW, qos=0)
             client.subscribe(TOPIC_COLOR, qos=0)
+            client.subscribe(TOPIC_META, qos=0)
+            client.subscribe(TOPIC_STATUS, qos=0)
+            client.subscribe(TOPIC_CALIB, qos=0)
             if SHOW_DEPTH:
                 client.subscribe(TOPIC_DEPTH, qos=0)
+            client.subscribe(TOPIC_DEPTH_RAW, qos=0)
             print(f"✅ Subscribed IMU: {TOPIC_RAW}", flush=True)
-            print(f"✅ Subscribed CAM: {TOPIC_COLOR}" + (f" + {TOPIC_DEPTH}" if SHOW_DEPTH else ""), flush=True)
+            print(f"✅ Subscribed CAM: {TOPIC_COLOR}", flush=True)
         else:
             print(f"⚠️  MQTT connect failed rc={rc}", flush=True)
 
@@ -97,11 +154,9 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
 
     def on_message(client, userdata, msg):
         try:
-            # IMU: CSV text
             if msg.topic == TOPIC_RAW:
                 payload = msg.payload.decode("utf-8", errors="ignore").strip()
                 if payload:
-                    # Keep queue bounded (real-time view prefers latest)
                     if imu_queue.qsize() > 200:
                         try:
                             while imu_queue.qsize() > 50:
@@ -111,17 +166,27 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
                     imu_queue.put_nowait(payload)
                 return
 
-            # Camera: store latest bytes ONLY (decode in UI loop)
-            if msg.topic == TOPIC_COLOR or (SHOW_DEPTH and msg.topic == TOPIC_DEPTH):
-                with frame_lock:
-                    if msg.topic == TOPIC_COLOR:
-                        frames["color_jpg"] = msg.payload
-                        frames["color_ts"] = time.monotonic()
-                    else:
-                        frames["depth_jpg"] = msg.payload
-                        frames["depth_ts"] = time.monotonic()
+            if msg.topic in {TOPIC_META, TOPIC_STATUS, TOPIC_CALIB}:
+                payload = msg.payload.decode("utf-8", errors="ignore")
+                meta = json.loads(payload) if payload else {}
+                if isinstance(meta, dict):
+                    with meta_lock:
+                        meta_state.update(meta)
+                        meta_state["_meta_ts"] = time.time()
                 return
 
+            if msg.topic in {TOPIC_COLOR, TOPIC_DEPTH, TOPIC_DEPTH_RAW}:
+                try:
+                    frame_queue.put_nowait((msg.topic, msg.payload, time.monotonic()))
+                except queue.Full:
+                    try:
+                        frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        frame_queue.put_nowait((msg.topic, msg.payload, time.monotonic()))
+                    except queue.Full:
+                        pass
         except Exception:
             pass
 
@@ -132,33 +197,65 @@ def make_mqtt_client(imu_queue: "queue.Queue[str]", frame_lock: threading.Lock, 
     return c
 
 
-def decode_jpg_to_rgb(jpg_bytes: bytes):
-    """Decode JPEG bytes to RGB numpy array, or None."""
-    if not jpg_bytes:
-        return None
-    arr = np.frombuffer(jpg_bytes, dtype=np.uint8)
-    bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if bgr is None:
-        return None
-    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+def compute_3d_distance(
+    p1: Tuple[int, int],
+    p2: Tuple[int, int],
+    depth: np.ndarray,
+    intrinsics: Dict[str, float],
+    depth_scale: float,
+) -> Tuple[Optional[float], str]:
+    if depth is None or intrinsics is None or depth_scale is None:
+        return None, "No depth/intrinsics"
+
+    h, w = depth.shape[:2]
+    u1, v1 = p1
+    u2, v2 = p2
+    if not (0 <= u1 < w and 0 <= v1 < h and 0 <= u2 < w and 0 <= v2 < h):
+        return None, "Point out of range"
+
+    z1 = depth[v1, u1] * depth_scale
+    z2 = depth[v2, u2] * depth_scale
+    if z1 <= 0 or z2 <= 0:
+        return None, "No valid depth"
+
+    fx = intrinsics["fx"]
+    fy = intrinsics["fy"]
+    ppx = intrinsics["ppx"]
+    ppy = intrinsics["ppy"]
+
+    x1 = (u1 - ppx) / fx * z1
+    y1 = (v1 - ppy) / fy * z1
+    x2 = (u2 - ppx) / fx * z2
+    y2 = (v2 - ppy) / fy * z2
+
+    dist = float(np.linalg.norm([x2 - x1, y2 - y1, z2 - z1]))
+    return dist, ""
+
+
+def generate_demo_frames(t: float, width: int = 640, height: int = 480) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    x = np.linspace(0, 1, width)
+    y = np.linspace(0, 1, height)
+    xv, yv = np.meshgrid(x, y)
+    color = np.stack([
+        (xv * 255).astype(np.uint8),
+        (yv * 255).astype(np.uint8),
+        ((0.5 + 0.5 * np.sin(t)) * 255 * np.ones_like(xv)).astype(np.uint8),
+    ], axis=-1)
+    depth_preview = cv2.applyColorMap(((xv + yv) * 127).astype(np.uint8), cv2.COLORMAP_TURBO)
+    depth_raw = ((xv + yv) * 1000 + 500).astype(np.uint16)
+    return color, depth_preview, depth_raw
 
 
 def main():
-    # Thread-safe queue for IMU MQTT -> UI
     imu_queue: "queue.Queue[str]" = queue.Queue()
+    frame_queue: "queue.Queue[Tuple[str, bytes, float]]" = queue.Queue(maxsize=4)
 
-    # Latest JPEG frames shared between MQTT callback and Matplotlib update()
-    frame_lock = threading.Lock()
-    frames = {
-        "color_jpg": None,
-        "depth_jpg": None,
-        "color_ts": 0.0,
-        "depth_ts": 0.0,
-    }
+    shared_frames = SharedFrames()
+    meta_state: Dict[str, Any] = {}
+    meta_lock = threading.Lock()
 
-    mqttc = make_mqtt_client(imu_queue, frame_lock, frames)
+    mqttc = make_mqtt_client(imu_queue, frame_queue, meta_state, meta_lock)
 
-    # Connect MQTT (retry loop)
     while True:
         try:
             mqttc.connect(BROKER_HOST, BROKER_PORT, keepalive=30)
@@ -169,56 +266,78 @@ def main():
 
     mqttc.loop_start()
 
-    # Latest parsed IMU sample
-    last_sample = None
+    stop_event = threading.Event()
 
-    # Circular buffers for plotting (sliding window)
+    def decode_worker():
+        while not stop_event.is_set():
+            try:
+                topic, payload, ts = frame_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            if topic == TOPIC_COLOR:
+                rgb = decode_jpg_to_rgb(payload)
+                if rgb is not None:
+                    shared_frames.update("color_rgb", rgb, ts, "color_ts", "color_recv_fps")
+            elif topic == TOPIC_DEPTH:
+                rgb = decode_jpg_to_rgb(payload)
+                if rgb is not None:
+                    shared_frames.update("depth_rgb", rgb, ts, "depth_ts", "depth_recv_fps")
+            elif topic == TOPIC_DEPTH_RAW:
+                depth = decode_png16(payload)
+                if depth is not None:
+                    shared_frames.update("depth_raw", depth, ts, "depth_raw_ts")
+
+    decoder_thread = threading.Thread(target=decode_worker, daemon=True)
+    decoder_thread.start()
+
+    last_sample = None
     maxlen = int(WINDOW_SEC * PLOT_HZ) + 10
     t0 = time.monotonic()
     t = deque(maxlen=maxlen)
 
-    acc_x = deque(maxlen=maxlen); acc_y = deque(maxlen=maxlen); acc_z = deque(maxlen=maxlen)
-    gyr_x = deque(maxlen=maxlen); gyr_y = deque(maxlen=maxlen); gyr_z = deque(maxlen=maxlen)
-    mag_x = deque(maxlen=maxlen); mag_y = deque(maxlen=maxlen); mag_z = deque(maxlen=maxlen)
+    acc_x = deque(maxlen=maxlen)
+    acc_y = deque(maxlen=maxlen)
+    acc_z = deque(maxlen=maxlen)
+    gyr_x = deque(maxlen=maxlen)
+    gyr_y = deque(maxlen=maxlen)
+    gyr_z = deque(maxlen=maxlen)
+    mag_x = deque(maxlen=maxlen)
+    mag_y = deque(maxlen=maxlen)
+    mag_z = deque(maxlen=maxlen)
 
-    # Data logging storage (later converted to a DataFrame)
     records = []
     last_store_t = time.monotonic()
 
-    # ---- Figure layout: text + images + 3 plots ----
-    fig = plt.figure()
-    gs = fig.add_gridspec(5, 1, height_ratios=[1.2, 3.0, 2.0, 2.0, 2.0])
+    fig = plt.figure(figsize=(16, 9))
+    gs = fig.add_gridspec(3, 2, height_ratios=[3.0, 1.4, 1.4], width_ratios=[3.2, 1.1])
 
-    ax_text = fig.add_subplot(gs[0])
-    ax_text.axis("off")
-    text_artist = ax_text.text(
-        0.01, 0.5, "Waiting for MQTT data...",
-        va="center", ha="left", fontsize=12, family="monospace"
-    )
-
-    # Images row
-    if SHOW_DEPTH:
-        gs_img = gs[1].subgridspec(1, 2, wspace=0.02)
-        ax_img_color = fig.add_subplot(gs_img[0, 0])
-        ax_img_depth = fig.add_subplot(gs_img[0, 1])
-        ax_img_depth.axis("off")
-        ax_img_depth.set_title("Depth (waiting...)")
-        depth_artist = ax_img_depth.imshow(np.zeros((240, 320, 3), dtype=np.uint8))
-    else:
-        ax_img_color = fig.add_subplot(gs[1])
-        ax_img_depth = None
-        depth_artist = None
-
+    gs_img = gs[0, 0].subgridspec(1, 2, wspace=0.02)
+    ax_img_color = fig.add_subplot(gs_img[0, 0])
     ax_img_color.axis("off")
-    ax_img_color.set_title("Color (waiting...)")
-    color_artist = ax_img_color.imshow(np.zeros((240, 320, 3), dtype=np.uint8))
+    ax_img_color.set_title("Color")
+    color_artist = ax_img_color.imshow(np.zeros((240, 320, 3), dtype=np.uint8), aspect="equal")
 
-    # IMU plots
-    ax_acc = fig.add_subplot(gs[2])
-    ax_gyr = fig.add_subplot(gs[3], sharex=ax_acc)
-    ax_mag = fig.add_subplot(gs[4], sharex=ax_acc)
+    ax_img_depth = fig.add_subplot(gs_img[0, 1])
+    ax_img_depth.axis("off")
+    ax_img_depth.set_title("Depth")
+    depth_artist = ax_img_depth.imshow(np.zeros((240, 320, 3), dtype=np.uint8), aspect="equal")
 
-    # ACC plot
+    overlay_box = dict(facecolor="black", alpha=0.5, pad=4)
+    color_overlay = ax_img_color.text(0.02, 0.98, "", transform=ax_img_color.transAxes,
+                                      va="top", ha="left", color="white", fontsize=9, bbox=overlay_box)
+    depth_overlay = ax_img_depth.text(0.02, 0.98, "", transform=ax_img_depth.transAxes,
+                                      va="top", ha="left", color="white", fontsize=9, bbox=overlay_box)
+
+    ax_ctrl = fig.add_subplot(gs[0, 1])
+    ax_ctrl.axis("off")
+    ctrl_text = ax_ctrl.text(0.02, 0.98, "Controls", va="top", ha="left", fontsize=11, family="monospace")
+
+    gs_imu = gs[1:, :].subgridspec(3, 1, hspace=0.3)
+    ax_acc = fig.add_subplot(gs_imu[0])
+    ax_gyr = fig.add_subplot(gs_imu[1], sharex=ax_acc)
+    ax_mag = fig.add_subplot(gs_imu[2], sharex=ax_acc)
+
     acc_l1, = ax_acc.plot([], [], label="ax_g")
     acc_l2, = ax_acc.plot([], [], label="ay_g")
     acc_l3, = ax_acc.plot([], [], label="az_g")
@@ -226,7 +345,6 @@ def main():
     ax_acc.grid(True)
     ax_acc.legend(loc="upper right")
 
-    # GYR plot
     gyr_l1, = ax_gyr.plot([], [], label="gx_dps")
     gyr_l2, = ax_gyr.plot([], [], label="gy_dps")
     gyr_l3, = ax_gyr.plot([], [], label="gz_dps")
@@ -234,7 +352,6 @@ def main():
     ax_gyr.grid(True)
     ax_gyr.legend(loc="upper right")
 
-    # MAG plot
     mag_l1, = ax_mag.plot([], [], label="mx_uT")
     mag_l2, = ax_mag.plot([], [], label="my_uT")
     mag_l3, = ax_mag.plot([], [], label="mz_uT")
@@ -243,33 +360,126 @@ def main():
     ax_mag.grid(True)
     ax_mag.legend(loc="upper right")
 
-    fig.suptitle("Jetson IMU + Camera via MQTT — Live Plot + Dashboard + CSV logger", fontsize=14)
+    fig.suptitle("Jetson IMU + Camera via MQTT — Live View + Controls", fontsize=14)
+
+    control_state = {
+        "jpeg_quality": 20,
+        "pub_hz": 20,
+        "resolution": "424x240",
+        "publish_depth_preview": True,
+        "publish_depth_raw": False,
+        "measurement_mode": False,
+    }
+
+    ax_quality = fig.add_axes([0.72, 0.82, 0.23, 0.03])
+    slider_quality = Slider(ax_quality, "JPEG", 5, 90, valinit=control_state["jpeg_quality"], valstep=1)
+
+    ax_pub = fig.add_axes([0.72, 0.69, 0.23, 0.12])
+    pub_hz_options = ["5", "10", "15", "20", "30"]
+    radio_pub = RadioButtons(ax_pub, pub_hz_options, active=pub_hz_options.index(str(control_state["pub_hz"])))
+    ax_pub.set_title("PUB_HZ", fontsize=9)
+
+    ax_res = fig.add_axes([0.72, 0.52, 0.23, 0.14])
+    res_options = ["424x240", "640x480", "848x480", "1280x720"]
+    radio_res = RadioButtons(ax_res, res_options, active=res_options.index(control_state["resolution"]))
+    ax_res.set_title("Resolution", fontsize=9)
+
+    ax_check = fig.add_axes([0.72, 0.41, 0.23, 0.08])
+    check = CheckButtons(ax_check, ["Depth preview", "Depth raw", "Measure"],
+                         [control_state["publish_depth_preview"],
+                          control_state["publish_depth_raw"],
+                          control_state["measurement_mode"]])
+
+    ax_apply = fig.add_axes([0.72, 0.35, 0.23, 0.045])
+    btn_apply = Button(ax_apply, "Apply")
+
+    ax_full_color = fig.add_axes([0.72, 0.29, 0.23, 0.045])
+    btn_full_color = Button(ax_full_color, "Fullscreen Color")
+
+    ax_full_depth = fig.add_axes([0.72, 0.24, 0.23, 0.045])
+    btn_full_depth = Button(ax_full_depth, "Fullscreen Depth")
+
+    zoom_figs: Dict[str, Any] = {"color": None, "depth": None}
+    zoom_artists: Dict[str, Any] = {"color": None, "depth": None}
+
+    def open_zoom(which: str):
+        if zoom_figs[which] is None:
+            fig_zoom, ax_zoom = plt.subplots()
+            ax_zoom.axis("off")
+            ax_zoom.set_title(which.capitalize())
+            artist = ax_zoom.imshow(np.zeros((240, 320, 3), dtype=np.uint8), aspect="equal")
+            fig_zoom.canvas.manager.full_screen_toggle()
+            zoom_figs[which] = fig_zoom
+            zoom_artists[which] = artist
+        else:
+            zoom_figs[which].canvas.manager.full_screen_toggle()
+
+    btn_full_color.on_clicked(lambda _evt: open_zoom("color"))
+    btn_full_depth.on_clicked(lambda _evt: open_zoom("depth"))
+
+    def update_control_state(_evt=None):
+        control_state["jpeg_quality"] = int(slider_quality.val)
+        control_state["pub_hz"] = int(radio_pub.value_selected)
+        control_state["resolution"] = radio_res.value_selected
+        control_state["publish_depth_preview"] = check.get_status()[0]
+        control_state["publish_depth_raw"] = check.get_status()[1]
+        control_state["measurement_mode"] = check.get_status()[2]
+
+    def send_control(_evt=None):
+        update_control_state()
+        w, h = control_state["resolution"].split("x")
+        payload = {
+            "jpeg_quality": control_state["jpeg_quality"],
+            "pub_hz": control_state["pub_hz"],
+            "color_w": int(w),
+            "color_h": int(h),
+            "depth_w": int(w),
+            "depth_h": int(h),
+            "publish_depth_preview": control_state["publish_depth_preview"],
+            "publish_depth_raw": control_state["publish_depth_raw"],
+        }
+        mqttc.publish(TOPIC_CONTROL, json.dumps(payload), qos=0, retain=False)
+
+    btn_apply.on_clicked(send_control)
+    check.on_clicked(lambda _evt: update_control_state())
+
+    measurement_points: list[Tuple[int, int]] = []
+    measurement_text = ax_img_color.text(0.02, 0.02, "", transform=ax_img_color.transAxes,
+                                         va="bottom", ha="left", color="yellow", fontsize=10,
+                                         bbox=dict(facecolor="black", alpha=0.4, pad=3))
+    measurement_line, = ax_img_color.plot([], [], color="yellow", linewidth=2)
+
+    def on_click(event):
+        if event.inaxes != ax_img_color:
+            return
+        if not control_state["measurement_mode"]:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        measurement_points.append((int(event.xdata), int(event.ydata)))
+        if len(measurement_points) > 2:
+            measurement_points.pop(0)
+
+    fig.canvas.mpl_connect("button_press_event", on_click)
 
     def maybe_store(sample, now_mono):
-        """Store IMU samples at STORE_HZ to avoid file bloat. STORE_HZ==0 stores all."""
         nonlocal last_store_t
-
         if STORE_HZ <= 0:
             records.append({
                 "t_wall": datetime.now().isoformat(timespec="milliseconds"),
                 "t_mono": now_mono - t0,
-                **sample
+                **sample,
             })
             return
-
         if (now_mono - last_store_t) >= STORE_PERIOD:
             last_store_t = now_mono
             records.append({
                 "t_wall": datetime.now().isoformat(timespec="milliseconds"),
                 "t_mono": now_mono - t0,
-                **sample
+                **sample,
             })
 
     def poll_mqtt_imu():
-        """
-        Drain all queued IMU MQTT messages and keep only the newest valid sample.
-        This prevents lag/backlog and keeps the UI real-time.
-        """
         nonlocal last_sample
         newest = None
         while True:
@@ -278,128 +488,175 @@ def main():
             except queue.Empty:
                 break
             newest = payload
-
         if newest is None:
             return
-
         sample = parse_csv12(newest)
         if sample is not None:
             last_sample = sample
             maybe_store(sample, time.monotonic())
 
-    # Camera decode throttling state
     last_cam_draw = 0.0
-    cached_color_rgb = None
-    cached_depth_rgb = None
-    cached_color_ts = 0.0
-    cached_depth_ts = 0.0
+    last_color_ts = 0.0
+    last_depth_ts = 0.0
+    last_depth_raw_ts = 0.0
 
     def update(_frame):
-        """Matplotlib animation callback: update camera + IMU plots."""
-        nonlocal last_sample, last_cam_draw
-        nonlocal cached_color_rgb, cached_depth_rgb, cached_color_ts, cached_depth_ts
+        nonlocal last_cam_draw, last_color_ts, last_depth_ts, last_depth_raw_ts
 
-        # --- IMU ---
         poll_mqtt_imu()
 
-        # --- Camera (decode only latest, at CAM_FPS) ---
         now_m = time.monotonic()
         if (now_m - last_cam_draw) >= CAM_PERIOD:
             last_cam_draw = now_m
-            with frame_lock:
-                color_jpg = frames["color_jpg"]
-                depth_jpg = frames["depth_jpg"] if SHOW_DEPTH else None
-                color_ts  = frames["color_ts"]
-                depth_ts  = frames["depth_ts"]
 
-            # Decode only if there is something new (or first time)
-            if color_jpg is not None and color_ts != cached_color_ts:
-                rgb = decode_jpg_to_rgb(color_jpg)
-                if rgb is not None:
-                    cached_color_rgb = rgb
-                    cached_color_ts = color_ts
+        frame_snapshot = shared_frames.snapshot()
 
-            if SHOW_DEPTH and depth_jpg is not None and depth_ts != cached_depth_ts:
-                rgb = decode_jpg_to_rgb(depth_jpg)
-                if rgb is not None:
-                    cached_depth_rgb = rgb
-                    cached_depth_ts = depth_ts
+        color_rgb = frame_snapshot.get("color_rgb")
+        depth_rgb = frame_snapshot.get("depth_rgb")
+        depth_raw = frame_snapshot.get("depth_raw")
 
-        # Update image artists using cached frames (fast)
-        if cached_color_rgb is not None:
-            color_artist.set_data(cached_color_rgb)
-            age = (time.monotonic() - cached_color_ts) if cached_color_ts > 0 else 0.0
-            ax_img_color.set_title(f"Color (age {age:.2f}s, cam_fps {CAM_FPS:.1f})")
-        else:
-            ax_img_color.set_title("Color (waiting...)")
+        if DEMO_MODE and color_rgb is None:
+            demo_color, demo_depth_preview, demo_depth_raw = generate_demo_frames(time.time())
+            color_rgb = demo_color
+            depth_rgb = demo_depth_preview
+            depth_raw = demo_depth_raw
 
-        if SHOW_DEPTH and depth_artist is not None:
-            if cached_depth_rgb is not None:
-                depth_artist.set_data(cached_depth_rgb)
-                age = (time.monotonic() - cached_depth_ts) if cached_depth_ts > 0 else 0.0
-                ax_img_depth.set_title(f"Depth (age {age:.2f}s, cam_fps {CAM_FPS:.1f})")
-            else:
-                ax_img_depth.set_title("Depth (waiting...)")
+        if color_rgb is not None:
+            color_artist.set_data(color_rgb)
+        if depth_rgb is not None:
+            depth_artist.set_data(depth_rgb)
 
-        # --- Dashboard + IMU plots ---
-        if last_sample is None:
-            text_artist.set_text(
-                f"Waiting for MQTT IMU data...\n"
-                f"Broker: {BROKER_HOST}:{BROKER_PORT}\n"
-                f"IMU: {TOPIC_RAW}\n"
-                f"CAM: {TOPIC_COLOR}" + (f"\nDEPTH: {TOPIC_DEPTH}" if SHOW_DEPTH else "")
-            )
-            artists = [text_artist, color_artist, acc_l1, acc_l2, acc_l3, gyr_l1, gyr_l2, gyr_l3, mag_l1, mag_l2, mag_l3]
-            if SHOW_DEPTH and depth_artist is not None:
-                artists.append(depth_artist)
-            return tuple(artists)
+        if frame_snapshot.get("color_ts", 0.0) != last_color_ts:
+            last_color_ts = frame_snapshot.get("color_ts", 0.0)
+        if frame_snapshot.get("depth_ts", 0.0) != last_depth_ts:
+            last_depth_ts = frame_snapshot.get("depth_ts", 0.0)
+        if frame_snapshot.get("depth_raw_ts", 0.0) != last_depth_raw_ts:
+            last_depth_raw_ts = frame_snapshot.get("depth_raw_ts", 0.0)
 
-        now = time.monotonic() - t0
-        s = last_sample
+        with meta_lock:
+            meta_snapshot = dict(meta_state)
+        t_wall = meta_snapshot.get("t_wall")
+        latency_ms = (time.time() - t_wall) * 1000.0 if t_wall else None
+        color_bytes = meta_snapshot.get("color_bytes", 0)
+        depth_bytes = meta_snapshot.get("depth_bytes", 0)
+        pub_fps = meta_snapshot.get("pub_fps")
+        pub_hz = meta_snapshot.get("pub_hz")
+        res_w = meta_snapshot.get("w")
+        res_h = meta_snapshot.get("h")
 
-        # Append to plot buffers (at UI rate)
-        t.append(now)
+        latency_text = f"Latency: {latency_ms:.1f} ms" if latency_ms is not None else "Latency: -"
+        pub_fps_text = f"{pub_fps:.1f}" if isinstance(pub_fps, (float, int)) else "-"
 
-        acc_x.append(s["ax_g"]);   acc_y.append(s["ay_g"]);   acc_z.append(s["az_g"])
-        gyr_x.append(s["gx_dps"]); gyr_y.append(s["gy_dps"]); gyr_z.append(s["gz_dps"])
-        mag_x.append(s["mx_uT"]);  mag_y.append(s["my_uT"]);  mag_z.append(s["mz_uT"])
-
-        dash = (
-            f"ACC [g]   ax={s['ax_g']:+8.3f}  ay={s['ay_g']:+8.3f}  az={s['az_g']:+8.3f}\n"
-            f"GYR [dps] gx={s['gx_dps']:+8.3f}  gy={s['gy_dps']:+8.3f}  gz={s['gz_dps']:+8.3f}\n"
-            f"MAG [uT]  mx={s['mx_uT']:+9.3f}  my={s['my_uT']:+9.3f}  mz={s['mz_uT']:+9.3f}\n"
-            f"P/T/Alt   P={s['p_hpa']:9.2f} hPa   T={s['t_C']:6.2f} °C   Alt={s['alt_m']:8.2f} m\n"
-            f"UI: {PLOT_HZ:.1f} Hz   Window: {WINDOW_SEC:.1f} s   Log: "
-            f"{('ALL' if STORE_HZ <= 0 else f'{STORE_HZ:.1f} Hz')}   Samples saved: {len(records)}"
+        color_overlay.set_text(
+            "\n".join([
+                f"Recv FPS: {frame_snapshot.get('color_recv_fps', 0.0):.1f}",
+                f"Pub FPS: {pub_fps_text}",
+                latency_text,
+                f"Bytes: {color_bytes}",
+                f"Res: {res_w}x{res_h}",
+            ])
         )
-        text_artist.set_text(dash)
+        depth_overlay.set_text(
+            "\n".join([
+                f"Recv FPS: {frame_snapshot.get('depth_recv_fps', 0.0):.1f}",
+                f"Pub FPS: {pub_fps_text}",
+                latency_text,
+                f"Bytes: {depth_bytes}",
+                f"Res: {res_w}x{res_h}",
+            ])
+        )
 
-        # Update line data
-        acc_l1.set_data(t, acc_x); acc_l2.set_data(t, acc_y); acc_l3.set_data(t, acc_z)
-        gyr_l1.set_data(t, gyr_x); gyr_l2.set_data(t, gyr_y); gyr_l3.set_data(t, gyr_z)
-        mag_l1.set_data(t, mag_x); mag_l2.set_data(t, mag_y); mag_l3.set_data(t, mag_z)
+        status_text = "\n".join([
+            f"Broker: {BROKER_HOST}:{BROKER_PORT}",
+            f"PUB_HZ: {pub_hz}  JPEG: {meta_snapshot.get('jpeg_quality', '-')}",
+            f"Depth preview: {meta_snapshot.get('publish_depth_preview', '-')}",
+            f"Depth raw: {meta_snapshot.get('publish_depth_raw', '-')}",
+            f"Resolution: {res_w}x{res_h}",
+            latency_text,
+        ])
+        ctrl_text.set_text(status_text)
 
-        # Sliding X window
-        if len(t) > 2:
-            ax_acc.set_xlim(max(0.0, t[-1] - WINDOW_SEC), t[-1])
+        if control_state["measurement_mode"] and len(measurement_points) == 2:
+            p1, p2 = measurement_points
+            measurement_line.set_data([p1[0], p2[0]], [p1[1], p2[1]])
+            intrinsics = meta_snapshot.get("intrinsics")
+            depth_scale = meta_snapshot.get("depth_scale")
+            dist, err = compute_3d_distance(p1, p2, depth_raw, intrinsics, depth_scale)
+            px_dist = float(np.linalg.norm(np.array(p2) - np.array(p1)))
+            if dist is None:
+                measurement_text.set_text(f"2D: {px_dist:.1f}px\n3D: {err}")
+            else:
+                measurement_text.set_text(f"2D: {px_dist:.1f}px\n3D: {dist:.3f} m")
+        else:
+            measurement_line.set_data([], [])
+            measurement_text.set_text("")
 
-        # Auto-scale Y
-        ax_acc.relim(); ax_acc.autoscale_view(scalex=False, scaley=True)
-        ax_gyr.relim(); ax_gyr.autoscale_view(scalex=False, scaley=True)
-        ax_mag.relim(); ax_mag.autoscale_view(scalex=False, scaley=True)
+        if zoom_figs["color"] is not None and zoom_artists["color"] is not None and color_rgb is not None:
+            zoom_artists["color"].set_data(color_rgb)
+            zoom_figs["color"].canvas.draw_idle()
+        if zoom_figs["depth"] is not None and zoom_artists["depth"] is not None and depth_rgb is not None:
+            zoom_artists["depth"].set_data(depth_rgb)
+            zoom_figs["depth"].canvas.draw_idle()
 
-        artists = [text_artist, color_artist, acc_l1, acc_l2, acc_l3, gyr_l1, gyr_l2, gyr_l3, mag_l1, mag_l2, mag_l3]
-        if SHOW_DEPTH and depth_artist is not None:
-            artists.append(depth_artist)
-        return tuple(artists)
+        if last_sample is not None:
+            now = time.monotonic() - t0
+            s = last_sample
+            t.append(now)
+
+            acc_x.append(s["ax_g"])
+            acc_y.append(s["ay_g"])
+            acc_z.append(s["az_g"])
+            gyr_x.append(s["gx_dps"])
+            gyr_y.append(s["gy_dps"])
+            gyr_z.append(s["gz_dps"])
+            mag_x.append(s["mx_uT"])
+            mag_y.append(s["my_uT"])
+            mag_z.append(s["mz_uT"])
+
+            acc_l1.set_data(t, acc_x)
+            acc_l2.set_data(t, acc_y)
+            acc_l3.set_data(t, acc_z)
+            gyr_l1.set_data(t, gyr_x)
+            gyr_l2.set_data(t, gyr_y)
+            gyr_l3.set_data(t, gyr_z)
+            mag_l1.set_data(t, mag_x)
+            mag_l2.set_data(t, mag_y)
+            mag_l3.set_data(t, mag_z)
+
+            if len(t) > 2:
+                ax_acc.set_xlim(max(0.0, t[-1] - WINDOW_SEC), t[-1])
+
+            ax_acc.relim(); ax_acc.autoscale_view(scalex=False, scaley=True)
+            ax_gyr.relim(); ax_gyr.autoscale_view(scalex=False, scaley=True)
+            ax_mag.relim(); ax_mag.autoscale_view(scalex=False, scaley=True)
+
+        return (
+            color_artist,
+            depth_artist,
+            color_overlay,
+            depth_overlay,
+            ctrl_text,
+            measurement_line,
+            measurement_text,
+            acc_l1,
+            acc_l2,
+            acc_l3,
+            gyr_l1,
+            gyr_l2,
+            gyr_l3,
+            mag_l1,
+            mag_l2,
+            mag_l3,
+        )
 
     interval_ms = int(1000.0 / PLOT_HZ)
     ani = FuncAnimation(fig, update, interval=interval_ms, blit=False)
 
-    # Save CSV on exit
     try:
         plt.show()
     finally:
+        stop_event.set()
+        decoder_thread.join(timeout=1)
         try:
             mqttc.loop_stop()
             mqttc.disconnect()
