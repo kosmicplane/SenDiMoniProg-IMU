@@ -15,7 +15,13 @@ from typing import Any, Dict, Optional, Tuple
 import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
-from PySide6 import QtCore, QtGui, QtWidgets
+try:
+    from PySide6 import QtCore, QtGui, QtWidgets
+    Signal = QtCore.Signal
+except ImportError:
+    from PyQt6 import QtCore, QtGui, QtWidgets
+    Signal = QtCore.pyqtSignal
+
 
 BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
