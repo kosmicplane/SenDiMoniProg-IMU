@@ -797,7 +797,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             return
         self._append_log(message)
 
-    @QtCore.Slot(str)
+    @QtCore.pyqtSlot(str)
     def _append_log(self, message: str) -> None:
         timestamped = f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
         self.logs.append(timestamped)
