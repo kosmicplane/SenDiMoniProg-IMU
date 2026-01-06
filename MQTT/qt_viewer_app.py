@@ -397,7 +397,7 @@ class DecoderWorker(threading.Thread):
 class VideoWidget(QtWidgets.QWidget):
     clicked = Signal(int, int)
     moved = Signal(int, int)
-
+    @Slot(int, int)
     def __init__(self, title: str) -> None:
         super().__init__()
         self.setMinimumSize(320, 240)
