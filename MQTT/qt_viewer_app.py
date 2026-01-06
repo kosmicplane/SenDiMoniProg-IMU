@@ -16,13 +16,11 @@ import cv2
 import numpy as np
 import paho.mqtt.client as mqtt
 from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6.QtCore import pyqtSignal as Signal, pyqtSlot as Slot
 
-# PyQt6 naming
-Signal = QtCore.pyqtSignal
-Slot = QtCore.pyqtSlot
+from PyQt6.QtCore import Qt
 
 # Qt6 enum compatibility helpers (PyQt6 uses enum classes)
-Qt = QtCore.Qt
 ALIGN_CENTER = Qt.AlignmentFlag.AlignCenter
 ALIGN_RIGHT  = Qt.AlignmentFlag.AlignRight
 ALIGN_VCENTER = Qt.AlignmentFlag.AlignVCenter
