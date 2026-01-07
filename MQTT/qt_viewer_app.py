@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 import json
+import math
 import os
 import queue
 import threading
@@ -572,14 +573,20 @@ class ImuPlotWidget(QtWidgets.QWidget):
         self._sample = 0
 
         self._last_redraw = 0.0
+        self._no_data = True
+        self._last_push = 0.0
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        title = QtWidgets.QLabel("IMU Plot (QtCharts) — Accel + Gyro")
-        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #c9d1d9;")
-        layout.addWidget(title)
+        self.title = QtWidgets.QLabel("IMU Plot (QtCharts) — Accel + Gyro")
+        self.title.setStyleSheet("font-size: 14px; font-weight: 700; color: #c9d1d9;")
+        layout.addWidget(self.title)
+
+        self.status = QtWidgets.QLabel("Waiting for IMU data…")
+        self.status.setStyleSheet("font-size: 12px; color: #8b949e;")
+        layout.addWidget(self.status)
 
         # --- Accel chart ---
         self.accel_chart = QChart()
@@ -650,20 +657,41 @@ class ImuPlotWidget(QtWidgets.QWidget):
         layout.addWidget(self.gyro_view, 1)
 
         # store min/max autoscale buffers
-        self._accel_min = 0.0
-        self._accel_max = 0.0
-        self._gyro_min = 0.0
-        self._gyro_max = 0.0
+        self._accel_vals = deque(maxlen=self.max_points)
+        self._gyro_vals = deque(maxlen=self.max_points)
 
     def _append(self, series: QLineSeries, x: int, y: float):
         series.append(x, y)
-        if series.count() > self.max_points:
-            # remove oldest point
-            series.remove(0)
+        extra = series.count() - self.max_points
+        if extra > 0:
+            series.removePoints(0, extra)
+
+    def _safe_float(self, value: Any) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        return number
+
+    def set_no_data(self, no_data: bool) -> None:
+        if self._no_data == no_data:
+            return
+        self._no_data = no_data
+        if no_data:
+            self.status.setText("No IMU data (waiting…)")
+            self.accel_chart.setTitle("Accel (no data)")
+            self.gyro_chart.setTitle("Gyro (no data)")
+        else:
+            self.status.setText("IMU streaming")
+            self.accel_chart.setTitle("Accel (m/s²)")
+            self.gyro_chart.setTitle("Gyro (rad/s)")
 
     def push(self, imu: Dict[str, Any]) -> None:
         # throttle chart redraw to update_hz
         now = time.monotonic()
+        self._last_push = now
         if self.update_hz > 0 and (now - self._last_redraw) < (1.0 / self.update_hz):
             # still update internal series but avoid expensive axis computations too often
             fast_only = True
@@ -674,12 +702,12 @@ class ImuPlotWidget(QtWidgets.QWidget):
         accel = imu.get("accel", {}) if isinstance(imu.get("accel", {}), dict) else {}
         gyro = imu.get("gyro", {}) if isinstance(imu.get("gyro", {}), dict) else {}
 
-        ax = float(accel.get("x", 0.0))
-        ay = float(accel.get("y", 0.0))
-        az = float(accel.get("z", 0.0))
-        gx = float(gyro.get("x", 0.0))
-        gy = float(gyro.get("y", 0.0))
-        gz = float(gyro.get("z", 0.0))
+        ax = self._safe_float(accel.get("x", 0.0))
+        ay = self._safe_float(accel.get("y", 0.0))
+        az = self._safe_float(accel.get("z", 0.0))
+        gx = self._safe_float(gyro.get("x", 0.0))
+        gy = self._safe_float(gyro.get("y", 0.0))
+        gz = self._safe_float(gyro.get("z", 0.0))
 
         x = self._sample
         self._sample += 1
@@ -701,13 +729,15 @@ class ImuPlotWidget(QtWidgets.QWidget):
         self.gyro_axis_x.setRange(x0, x)
 
         # Auto-scale Y with padding (simple but effective)
-        accel_vals = [ax, ay, az]
-        gyro_vals = [gx, gy, gz]
+        self._accel_vals.extend([ax, ay, az])
+        self._gyro_vals.extend([gx, gy, gz])
 
-        self._accel_min = min(self._accel_min, *accel_vals) if self._sample > 1 else min(accel_vals)
-        self._accel_max = max(self._accel_max, *accel_vals) if self._sample > 1 else max(accel_vals)
-        self._gyro_min = min(self._gyro_min, *gyro_vals) if self._sample > 1 else min(gyro_vals)
-        self._gyro_max = max(self._gyro_max, *gyro_vals) if self._sample > 1 else max(gyro_vals)
+        accel_vals = list(self._accel_vals)
+        gyro_vals = list(self._gyro_vals)
+        if not accel_vals:
+            accel_vals = [0.0]
+        if not gyro_vals:
+            gyro_vals = [0.0]
 
         def pad(lo, hi, p=0.1):
             if lo == hi:
@@ -715,8 +745,8 @@ class ImuPlotWidget(QtWidgets.QWidget):
             span = hi - lo
             return lo - span * p, hi + span * p
 
-        a_lo, a_hi = pad(self._accel_min, self._accel_max, 0.15)
-        g_lo, g_hi = pad(self._gyro_min, self._gyro_max, 0.15)
+        a_lo, a_hi = pad(min(accel_vals), max(accel_vals), 0.15)
+        g_lo, g_hi = pad(min(gyro_vals), max(gyro_vals), 0.15)
 
         self.accel_axis_y.setRange(a_lo, a_hi)
         self.gyro_axis_y.setRange(g_lo, g_hi)
@@ -760,6 +790,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self._measure_points: list[Tuple[int, int]] = []
         self._cursor_depth = "--"
         self._distance_text = "--"
+        self._last_imu_update = 0.0
 
         self._auto_apply_timer = QtCore.QTimer(self)
         self._auto_apply_timer.setSingleShot(True)
@@ -782,7 +813,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
 
         self.imu_plot = ImuPlotWidget(max_points=400, update_hz=15)
-        self.imu_plot.setMinimumHeight(520)   # <<<< MAS GRANDE
+        self.imu_plot.setMinimumHeight(600)
         layout.addWidget(self.imu_plot)
 
         return group
@@ -881,8 +912,14 @@ class DashboardWindow(QtWidgets.QMainWindow):
         # IMU plot grande (lo agregamos abajo)
         self.imu_plot_group = self._build_imu_plot_group()
         telemetry_layout.addWidget(self.imu_plot_group, 1)
+        telemetry_layout.addStretch(1)
 
-        tabs.addTab(telemetry_page, "Telemetry")
+        telemetry_scroll = QtWidgets.QScrollArea()
+        telemetry_scroll.setWidgetResizable(True)
+        telemetry_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        telemetry_scroll.setWidget(telemetry_page)
+
+        tabs.addTab(telemetry_scroll, "Telemetry")
 
         # Tab 3: Logs
         tabs.addTab(self._build_log_group(), "Logs")
@@ -1004,8 +1041,11 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
     def _build_data_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Data")
-        layout = QtWidgets.QFormLayout(group)
-        layout.setSpacing(6)
+        layout = QtWidgets.QGridLayout(group)
+        layout.setHorizontalSpacing(16)
+        layout.setVerticalSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        group.setStyleSheet("QGroupBox { font-size: 14px; font-weight: 600; } QLabel { font-size: 13px; }")
 
         self.data_labels: Dict[str, QtWidgets.QLabel] = {}
         fields = [
@@ -1029,10 +1069,25 @@ class DashboardWindow(QtWidgets.QMainWindow):
             ("conn", "Broker"),
             ("status", "Status"),
         ]
-        for key, label in fields:
-            widget = QtWidgets.QLabel("--")
-            self.data_labels[key] = widget
-            layout.addRow(label, widget)
+        mid = (len(fields) + 1) // 2
+        for idx, (key, label) in enumerate(fields):
+            col_base = 0 if idx < mid else 2
+            row = idx if idx < mid else idx - mid
+
+            label_widget = QtWidgets.QLabel(label)
+            label_widget.setAlignment(ALIGN_LEFT | ALIGN_VCENTER)
+
+            value_widget = QtWidgets.QLabel("--")
+            value_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            value_widget.setMinimumWidth(220)
+            value_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+
+            self.data_labels[key] = value_widget
+            layout.addWidget(label_widget, row, col_base)
+            layout.addWidget(value_widget, row, col_base + 1)
+
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
         return group
 
     def _build_log_group(self) -> QtWidgets.QGroupBox:
@@ -1302,6 +1357,10 @@ class DashboardWindow(QtWidgets.QMainWindow):
         imu = state.imu
         if isinstance(state.imu, dict) and state.imu and hasattr(self, "imu_plot"):
             self.imu_plot.push(state.imu)
+            self._last_imu_update = time.monotonic()
+        if hasattr(self, "imu_plot"):
+            no_data = (time.monotonic() - self._last_imu_update) > 2.0
+            self.imu_plot.set_no_data(no_data)
         accel = imu.get("accel", {}) if isinstance(imu.get("accel", {}), dict) else {}
         gyro = imu.get("gyro", {}) if isinstance(imu.get("gyro", {}), dict) else {}
         accel_text = f"{accel.get('x', '--')} / {accel.get('y', '--')} / {accel.get('z', '--')}"
