@@ -13,7 +13,7 @@ SER_BAUD = 230400
 # ----------------------------
 # MQTT settings
 # ----------------------------
-BROKER_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
+BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
