@@ -130,123 +130,88 @@ git push
 
 This repo includes a Jetson publisher and a desktop UI that streams and visualizes **color + depth** frames over MQTT.
 
+### ✅ Broker configuration (LAN recommended)
+
+Set the broker using environment variables (no hardcoded hosts):
+
+- `MQTT_HOST`
+- `MQTT_PORT`
+- `MQTT_USER`
+- `MQTT_PASS`
+
+Recommended broker on the laptop (LAN):
+
+```bash
+sudo apt install mosquitto mosquitto-clients
+```
+
 ### ✅ Topics
 
 **Publisher output**
 
-- `cam/jetson01/color_jpg` — JPEG bytes (BGR) for the color camera
-- `cam/jetson01/depth_jpg` — JPEG bytes (colorized depth preview)
-- `cam/jetson01/depth_z16_png` — **aligned** depth as 16‑bit PNG (Z16)
-- `cam/jetson01/meta` — JSON metadata (`seq`, `t_wall`, sizes, fps, intrinsics)
+- `cam/jetson01/color_mat` — binary frame (header + raw BGR8 bytes)
+- `cam/jetson01/depth_mat` — binary frame (header + raw Z16 bytes)
+- `cam/jetson01/meta` — JSON metadata (`seq`, `t_cap_ns`, fps, intrinsics, model)
 - `cam/jetson01/calib` — JSON calibration snapshot (`intrinsics`, `depth_scale`)
 - `cam/jetson01/status` — JSON status/config snapshot
-- `cam/jetson01/imu` — JSON IMU sample (accel + gyro)
+
+**IMU input (separate node)**
+
+- `imu/jetson01/raw` — CSV IMU stream (accel/gyro/mag + env)
 
 **Control input**
 
-- `cam/jetson01/control` — JSON config payload to change JPEG quality, FPS, resolution, and depth publishing **live**.
+- `cam/jetson01/control` — JSON config payload (e.g. streaming enable/disable).
 
 Example control payload:
 
 ```json
 {
-  "jpeg_quality": 20,
-  "pub_hz": 15,
-  "color_w": 424,
-  "color_h": 240,
-  "publish_depth_preview": true,
-  "publish_depth_z16": true,
-  "imu_enabled": true,
-  "imu_hz": 200,
-  "record_enabled": false,
   "streaming_enabled": true
 }
 ```
 
-### Message Formats
+### Frame binary format (RSF1)
 
-**Meta (`cam/jetson01/meta`)**
+Frames are raw numpy matrices with a fixed little-endian header (no JPG/PNG):
 
-```json
-{
-  "seq": 120,
-  "t_wall": 1732576301.123,
-  "color_bytes": 14523,
-  "depth_bytes": 12310,
-  "depth_raw_bytes": 43218,
-  "w": 424,
-  "h": 240,
-  "pub_hz": 20,
-  "pub_fps": 19.8,
-  "jpeg_quality": 20,
-  "publish_depth_preview": true,
-  "publish_depth_z16": true,
-  "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
-  "depth_scale": 0.001,
-  "imu_enabled": true,
-  "imu_hz": 200,
-  "record_enabled": false,
-  "streaming_enabled": true
-}
+```
+magic:      4 bytes  b'RSF1'
+kind:       uint8    (0=color, 1=depth)
+seq:        uint32
+t_cap_ns:   uint64   (time.time_ns() at capture)
+w:          uint16
+h:          uint16
+channels:   uint8    (3 for color, 1 for depth)
+dtype_code: uint8    (1=uint8, 2=uint16)
+payload_len:uint32
+payload:    raw contiguous bytes
 ```
 
-**Status (`cam/jetson01/status`)**
+### How to run (Jetson + Laptop)
 
-```json
-{
-  "config": {
-    "color_w": 424,
-    "color_h": 240,
-    "color_fps": 30,
-    "depth_w": 424,
-    "depth_h": 240,
-    "depth_fps": 30,
-    "pub_hz": 20,
-    "jpeg_quality": 20,
-    "publish_depth_preview": true,
-    "publish_depth_z16": false,
-    "imu_enabled": true,
-    "imu_hz": 200,
-    "record_enabled": false,
-    "streaming_enabled": true
-  },
-  "intrinsics": {"fx": 615.4, "fy": 615.2, "ppx": 320.1, "ppy": 240.2},
-  "depth_scale": 0.001,
-  "t_wall": 1732576301.456
-}
-```
-
-**IMU (`cam/jetson01/imu`)**
-
-```json
-{
-  "t_wall": 1732576301.789,
-  "seq": 120,
-  "accel": {"x": 0.01, "y": 0.02, "z": 9.81},
-  "gyro": {"x": 0.001, "y": 0.002, "z": 0.003},
-  "imu_hz": 200
-}
-```
-
-### How to Run
-
-**Publisher (Jetson / RealSense):**
+**Jetson (publisher)**
 
 ```bash
+export MQTT_HOST=192.168.1.10
+export MQTT_PORT=1883
 python3 MQTT/Mosquitto_RealSense_Camara.py
 ```
 
-**UI (desktop, Qt dashboard):**
+**Laptop (viewer)**
 
 ```bash
+sudo apt install python3-pyqt6 python3-pyqt6.qtcharts
+export MQTT_HOST=192.168.1.10
+export MQTT_PORT=1883
 python3 MQTT/qt_viewer_app.py
 ```
 
-**Legacy UI (Matplotlib):**
+### Troubleshooting
 
-```bash
-python3 MQTT/Mosquitto_plotter_IMUCAM.py
-```
+- **No frames?** Ensure the broker is reachable in LAN and the topics match.
+- **PyQt6 missing?** Install via APT: `sudo apt install python3-pyqt6 python3-pyqt6.qtcharts`.
+- **Optional LZ4:** install `sudo apt install python3-lz4` and set `RSF_LZ4=1` on both sides.
 
 ### Demo Mode (no hardware)
 
@@ -256,10 +221,16 @@ If you do not have a RealSense available, the UI can run in **demo mode** to dis
 DEMO_MODE=1 python3 MQTT/qt_viewer_app.py
 ```
 
-### Dependencies
+### Dependencies (APT)
 
 ```bash
-pip install paho-mqtt numpy opencv-python matplotlib pandas PySide6
+sudo apt install python3-paho-mqtt python3-numpy python3-opencv
+```
+
+For the UI, add Qt (if not already installed):
+
+```bash
+sudo apt install python3-pyqt6 python3-pyqt6.qtcharts
 ```
 
 For the Jetson publisher, install **librealsense / pyrealsense2** for your platform.

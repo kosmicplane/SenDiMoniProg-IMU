@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 import serial
 import paho.mqtt.client as mqtt
@@ -12,11 +13,10 @@ SER_BAUD = 230400
 # ----------------------------
 # MQTT settings
 # ----------------------------
-BROKER_HOST = "test.mosquitto.org"
-#BROKER_HOST = "test.mosquitto.org"
-BROKER_PORT = 1883
-MQTT_USER = ""      # optional
-MQTT_PASS = ""      # optional
+BROKER_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
+BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USER = os.getenv("MQTT_USER", "")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 TOPIC_RAW = "imu/jetson01/raw"  # publishes the same CSV line as received
 
