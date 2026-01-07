@@ -7,7 +7,6 @@ import csv
 import json
 import math
 import os
-import queue
 import threading
 import time
 from dataclasses import dataclass, field
@@ -61,7 +60,6 @@ IMU_FIELDS = [
     "p_hpa", "t_C", "alt_m",
 ]
 
-MAX_QUEUE = 6
 LOG_MAX_LINES = 400
 
 
@@ -103,18 +101,35 @@ class LatestFrames:
     dropped_depth: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def update_color(self, image: QtGui.QImage, ts: float, payload_bytes: int) -> None:
+    def update_color(
+        self,
+        image: QtGui.QImage,
+        ts: float,
+        payload_bytes: int,
+        rx_fps: Optional[float] = None,
+    ) -> None:
         with self.lock:
-            if self.last_color_ts > 0:
+            if rx_fps is None and self.last_color_ts > 0:
                 self.color_rx_fps = 1.0 / max(1e-6, ts - self.last_color_ts)
+            elif rx_fps is not None:
+                self.color_rx_fps = rx_fps
             self.last_color_ts = ts
             self.color_image = image
             self.color_bytes = payload_bytes
 
-    def update_depth(self, depth_raw: np.ndarray, image: QtGui.QImage, ts: float, payload_bytes: int) -> None:
+    def update_depth(
+        self,
+        depth_raw: np.ndarray,
+        image: QtGui.QImage,
+        ts: float,
+        payload_bytes: int,
+        rx_fps: Optional[float] = None,
+    ) -> None:
         with self.lock:
-            if self.last_depth_ts > 0:
+            if rx_fps is None and self.last_depth_ts > 0:
                 self.depth_rx_fps = 1.0 / max(1e-6, ts - self.last_depth_ts)
+            elif rx_fps is not None:
+                self.depth_rx_fps = rx_fps
             self.last_depth_ts = ts
             self.depth_raw = depth_raw
             self.depth_image = image
@@ -291,30 +306,53 @@ def compute_distance(
     return dist, ""
 
 
-class BoundedQueue:
-    def __init__(self, maxsize: int) -> None:
-        self.queue: "queue.Queue[Tuple[str, bytes, float]]" = queue.Queue(maxsize=maxsize)
-        self.dropped: Dict[str, int] = {TOPIC_COLOR: 0, TOPIC_DEPTH: 0}
+@dataclass
+class LatestPayload:
+    payload: Optional[bytes] = None
+    ts: float = 0.0
+    rx_fps: float = 0.0
+    bytes_len: int = 0
+    seq: int = 0
+    unread: bool = False
 
-    def put(self, topic: str, payload: bytes) -> None:
-        try:
-            self.queue.put_nowait((topic, payload, time.monotonic()))
-        except queue.Full:
-            self.dropped[topic] = self.dropped.get(topic, 0) + 1
-            try:
-                self.queue.get_nowait()
-            except queue.Empty:
-                pass
-            try:
-                self.queue.put_nowait((topic, payload, time.monotonic()))
-            except queue.Full:
-                self.dropped[topic] = self.dropped.get(topic, 0) + 1
+
+class LatestPayloadBuffer:
+    def __init__(self, topics: Tuple[str, ...]) -> None:
+        self._payloads = {topic: LatestPayload() for topic in topics}
+        self._overwritten = {topic: 0 for topic in topics}
+        self._lock = threading.Lock()
+
+    def update(self, topic: str, payload: bytes) -> None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._payloads.setdefault(topic, LatestPayload())
+            if entry.unread:
+                self._overwritten[topic] = self._overwritten.get(topic, 0) + 1
+            if entry.ts > 0:
+                entry.rx_fps = 1.0 / max(1e-6, now - entry.ts)
+            entry.ts = now
+            entry.payload = payload
+            entry.bytes_len = len(payload)
+            entry.seq += 1
+            entry.unread = True
+
+    def take_if_new(self, topic: str, last_seq: int) -> Optional[Tuple[bytes, float, float, int, int]]:
+        with self._lock:
+            entry = self._payloads.get(topic)
+            if entry is None or entry.payload is None or entry.seq <= last_seq:
+                return None
+            entry.unread = False
+            return entry.payload, entry.ts, entry.rx_fps, entry.bytes_len, entry.seq
+
+    def overwritten_counts(self) -> Dict[str, int]:
+        with self._lock:
+            return dict(self._overwritten)
 
 
 class MqttClient(threading.Thread):
-    def __init__(self, frame_queue: BoundedQueue, state: SharedState, log_cb) -> None:
+    def __init__(self, latest_buffer: LatestPayloadBuffer, state: SharedState, log_cb) -> None:
         super().__init__(daemon=True)
-        self.frame_queue = frame_queue
+        self.latest_buffer = latest_buffer
         self.state = state
         self.log_cb = log_cb
         self._last_imu_ts = 0.0
@@ -352,7 +390,7 @@ class MqttClient(threading.Thread):
 
     def _on_message(self, client, userdata, msg):
         if msg.topic in {TOPIC_COLOR, TOPIC_DEPTH}:
-            self.frame_queue.put(msg.topic, msg.payload)
+            self.latest_buffer.update(msg.topic, msg.payload)
             return
 
         if msg.topic in {TOPIC_META, TOPIC_STATUS, TOPIC_CALIB}:
@@ -425,9 +463,9 @@ class MqttClient(threading.Thread):
 
 
 class DecoderWorker(threading.Thread):
-    def __init__(self, frame_queue: BoundedQueue, frames: LatestFrames, state: SharedState, log_cb=None) -> None:
+    def __init__(self, latest_buffer: LatestPayloadBuffer, frames: LatestFrames, state: SharedState, log_cb=None) -> None:
         super().__init__(daemon=True)
-        self.frame_queue = frame_queue
+        self.latest_buffer = latest_buffer
         self.frames = frames
         self.state = state
         self.log_cb = log_cb
@@ -435,6 +473,8 @@ class DecoderWorker(threading.Thread):
         self._last_log = 0.0
         self._last_color_shape: Tuple[int, int] = (0, 0)
         self._last_depth_shape: Tuple[int, int] = (0, 0)
+        self._last_color_seq = 0
+        self._last_depth_seq = 0
 
     def _resolve_shapes(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         meta = self.state.snapshot().meta
@@ -450,32 +490,41 @@ class DecoderWorker(threading.Thread):
 
     def run(self) -> None:
         while not self._stop_event.is_set():
-            try:
-                topic, payload, ts = self.frame_queue.queue.get(timeout=0.2)
-            except queue.Empty:
-                continue
-
+            did_work = False
             (color_w, color_h), (depth_w, depth_h) = self._resolve_shapes()
 
-            if topic == TOPIC_COLOR:
+            color_data = self.latest_buffer.take_if_new(TOPIC_COLOR, self._last_color_seq)
+            if color_data is not None:
+                payload, ts, rx_fps, bytes_len, seq = color_data
                 image = decode_color_raw(payload, color_w, color_h)
                 if image is not None:
-                    self.frames.update_color(image, ts, len(payload))
+                    self.frames.update_color(image, ts, bytes_len, rx_fps=rx_fps)
+                    self._last_color_seq = seq
                 else:
                     if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
                         self._last_log = time.monotonic()
-                        self.log_cb(f"❌ decode color failed (bytes={len(payload)})")
+                        self.log_cb(f"❌ decode color failed (bytes={bytes_len})")
+                    self._last_color_seq = seq
+                did_work = True
 
-            elif topic == TOPIC_DEPTH:
+            depth_data = self.latest_buffer.take_if_new(TOPIC_DEPTH, self._last_depth_seq)
+            if depth_data is not None:
+                payload, ts, rx_fps, bytes_len, seq = depth_data
                 depth = decode_depth_raw(payload, depth_w, depth_h)
                 if depth is not None:
                     depth_image = depth_to_colormap(depth)
                     if depth_image is not None:
-                        self.frames.update_depth(depth, depth_image, ts, len(payload))
+                        self.frames.update_depth(depth, depth_image, ts, bytes_len, rx_fps=rx_fps)
+                    self._last_depth_seq = seq
                 else:
                     if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
                         self._last_log = time.monotonic()
-                        self.log_cb(f"❌ decode depth failed (bytes={len(payload)})")
+                        self.log_cb(f"❌ decode depth failed (bytes={bytes_len})")
+                    self._last_depth_seq = seq
+                did_work = True
+
+            if not did_work:
+                time.sleep(0.01)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -844,12 +893,12 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
         self.frames = LatestFrames()
         self.state = SharedState()
-        self.queue = BoundedQueue(MAX_QUEUE)
+        self.latest_buffer = LatestPayloadBuffer((TOPIC_COLOR, TOPIC_DEPTH))
         self.logs: list[str] = []
-        self.decoder_thread = DecoderWorker(self.queue, self.frames, self.state, self.log)
+        self.decoder_thread = DecoderWorker(self.latest_buffer, self.frames, self.state, self.log)
         self.decoder_thread.start()
 
-        self.mqtt_thread = MqttClient(self.queue, self.state, self.log)
+        self.mqtt_thread = MqttClient(self.latest_buffer, self.state, self.log)
         if not DEMO_MODE:
             self.mqtt_thread.start()
 
@@ -916,7 +965,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         title_layout.addWidget(self.status_label)
 
         right_header = QtWidgets.QVBoxLayout()
-        self.quick_stats = QtWidgets.QLabel("Latency: -- ms | RX FPS: -- | Dropped: --")
+        self.quick_stats = QtWidgets.QLabel("Latency: N/A | RX FPS: -- | Overwritten: --")
         self.quick_stats.setAlignment(ALIGN_RIGHT | ALIGN_VCENTER)
         self.quick_stats.setStyleSheet("font-size: 14px; color: #c9d1d9;")
         self.recording_status = QtWidgets.QLabel("Recording: OFF")
@@ -1141,7 +1190,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             ("cam_color_bytes", "Color bytes"),
             ("cam_depth_bytes", "Depth bytes"),
             ("cam_rx_fps", "RX FPS"),
-            ("dropped", "Dropped frames"),
+            ("dropped", "Overwritten frames"),
             ("imu_accel", "Accel (g)"),
             ("imu_gyro", "Gyro (dps)"),
             ("imu_mag", "Mag (uT)"),
@@ -1387,8 +1436,9 @@ class DashboardWindow(QtWidgets.QMainWindow):
         snapshot = self.frames.snapshot()
         state = self.state.snapshot()
 
-        dropped_color = self.queue.dropped.get(TOPIC_COLOR, 0)
-        dropped_depth = self.queue.dropped.get(TOPIC_DEPTH, 0)
+        overwritten = self.latest_buffer.overwritten_counts()
+        dropped_color = overwritten.get(TOPIC_COLOR, 0)
+        dropped_depth = overwritten.get(TOPIC_DEPTH, 0)
 
         self.status_label.setText("Connected" if state.connected else "Disconnected")
         self.status_label.setStyleSheet("color: #2ea043;" if state.connected else "color: #f85149;")
@@ -1399,26 +1449,27 @@ class DashboardWindow(QtWidgets.QMainWindow):
             self.depth_widget.set_image(snapshot.depth_image)
 
         meta = state.meta
-        latency_ms = "--"
+        latency_ms = "N/A"
         if meta.get("t_wall") is not None:
             latency_ms = f"{(time.time() - float(meta['t_wall'])) * 1000.0:.1f}"
         rx_fps = f"{snapshot.color_rx_fps:.1f}/{snapshot.depth_rx_fps:.1f}"
         dropped = dropped_color + dropped_depth
-        self.quick_stats.setText(f"Latency: {latency_ms} ms | RX FPS: {rx_fps} | Dropped: {dropped}")
+        latency_text = f"{latency_ms} ms" if latency_ms != "N/A" else latency_ms
+        self.quick_stats.setText(f"Latency: {latency_text} | RX FPS: {rx_fps} | Overwritten: {dropped}")
 
         resolution = f"{meta.get('color_w', '--')}x{meta.get('color_h', '--')}"
         overlay_color = (
             f"Res: {resolution}",
-            f"Latency: {latency_ms} ms",
+            f"Latency: {latency_text}",
             f"RX FPS: {snapshot.color_rx_fps:.1f}",
             f"Bytes: {snapshot.color_bytes}",
-            f"Dropped: {dropped_color}",
+            f"Overwritten: {dropped_color}",
         )
         overlay_depth = (
             f"Res: {meta.get('depth_w', '--')}x{meta.get('depth_h', '--')}",
             f"RX FPS: {snapshot.depth_rx_fps:.1f}",
             f"Bytes: {snapshot.depth_bytes}",
-            f"Dropped: {dropped_depth}",
+            f"Overwritten: {dropped_depth}",
         )
         self.color_widget.set_overlay(overlay_color)
         self.depth_widget.set_overlay(overlay_depth)
@@ -1426,7 +1477,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.data_labels["cam_seq"].setText(str(meta.get("seq", "--")))
         self.data_labels["cam_res"].setText(resolution)
         self.data_labels["cam_pub_fps"].setText(f"{meta.get('pub_fps', '--')}")
-        self.data_labels["cam_latency"].setText(latency_ms)
+        self.data_labels["cam_latency"].setText(latency_text)
         self.data_labels["cam_color_bytes"].setText(str(snapshot.color_bytes))
         self.data_labels["cam_depth_bytes"].setText(str(snapshot.depth_bytes))
         self.data_labels["cam_rx_fps"].setText(f"{snapshot.color_rx_fps:.1f}")
