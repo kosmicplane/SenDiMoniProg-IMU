@@ -22,6 +22,8 @@ import paho.mqtt.client as mqtt
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, pyqtSignal as Signal, pyqtSlot as Slot
 
+from frame_codec import KIND_COLOR, KIND_DEPTH, unpack_frame
+
 # ---- Qt6 enum helpers ----
 ALIGN_CENTER = Qt.AlignmentFlag.AlignCenter
 ALIGN_RIGHT = Qt.AlignmentFlag.AlignRight
@@ -37,14 +39,14 @@ AA_HINT = QtGui.QPainter.RenderHint.Antialiasing
 FONT_BOLD = QtGui.QFont.Weight.Bold
 
 
-BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
+BROKER_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 CLIENT_ID_PREFIX = "qt-viewer"
 
-TOPIC_COLOR = "cam/jetson01/color_raw"
-TOPIC_DEPTH = "cam/jetson01/depth_raw"
+TOPIC_COLOR = "cam/jetson01/color_mat"
+TOPIC_DEPTH = "cam/jetson01/depth_mat"
 TOPIC_META = "cam/jetson01/meta"
 TOPIC_STATUS = "cam/jetson01/status"
 TOPIC_CALIB = "cam/jetson01/calib"
@@ -52,13 +54,6 @@ TOPIC_IMU = "imu/jetson01/raw"
 TOPIC_CONTROL = "cam/jetson01/control"
 
 DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"
-
-IMU_FIELDS = [
-    "ax_g", "ay_g", "az_g",
-    "gx_dps", "gy_dps", "gz_dps",
-    "mx_uT", "my_uT", "mz_uT",
-    "p_hpa", "t_C", "alt_m",
-]
 
 LOG_MAX_LINES = 400
 
@@ -75,7 +70,17 @@ def parse_imu_csv(line: str) -> Optional[Dict[str, Any]]:
         values = list(map(float, parts))
     except ValueError:
         return None
-    data = dict(zip(IMU_FIELDS, values))
+    data = dict(
+        zip(
+            [
+                "ax_g", "ay_g", "az_g",
+                "gx_dps", "gy_dps", "gz_dps",
+                "mx_uT", "my_uT", "mz_uT",
+                "p_hpa", "t_C", "alt_m",
+            ],
+            values,
+        )
+    )
     return {
         "accel": {"x": data["ax_g"], "y": data["ay_g"], "z": data["az_g"]},
         "gyro": {"x": data["gx_dps"], "y": data["gy_dps"], "z": data["gz_dps"]},
@@ -97,6 +102,12 @@ class LatestFrames:
     depth_rx_fps: float = 0.0
     last_color_ts: float = 0.0
     last_depth_ts: float = 0.0
+    color_seq: int = 0
+    depth_seq: int = 0
+    color_shape: Tuple[int, int] = (0, 0)
+    depth_shape: Tuple[int, int] = (0, 0)
+    color_t_cap_ns: int = 0
+    depth_t_cap_ns: int = 0
     dropped_color: int = 0
     dropped_depth: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -105,6 +116,9 @@ class LatestFrames:
         self,
         image: QtGui.QImage,
         ts: float,
+        seq: int,
+        shape: Tuple[int, int],
+        t_cap_ns: int,
         payload_bytes: int,
         rx_fps: Optional[float] = None,
     ) -> None:
@@ -116,12 +130,18 @@ class LatestFrames:
             self.last_color_ts = ts
             self.color_image = image
             self.color_bytes = payload_bytes
+            self.color_seq = seq
+            self.color_shape = shape
+            self.color_t_cap_ns = t_cap_ns
 
     def update_depth(
         self,
         depth_raw: np.ndarray,
         image: QtGui.QImage,
         ts: float,
+        seq: int,
+        shape: Tuple[int, int],
+        t_cap_ns: int,
         payload_bytes: int,
         rx_fps: Optional[float] = None,
     ) -> None:
@@ -134,6 +154,9 @@ class LatestFrames:
             self.depth_raw = depth_raw
             self.depth_image = image
             self.depth_bytes = payload_bytes
+            self.depth_seq = seq
+            self.depth_shape = shape
+            self.depth_t_cap_ns = t_cap_ns
 
     def snapshot(self) -> "LatestFrames":
         with self.lock:
@@ -147,6 +170,12 @@ class LatestFrames:
                 depth_rx_fps=self.depth_rx_fps,
                 last_color_ts=self.last_color_ts,
                 last_depth_ts=self.last_depth_ts,
+                color_seq=self.color_seq,
+                depth_seq=self.depth_seq,
+                color_shape=self.color_shape,
+                depth_shape=self.depth_shape,
+                color_t_cap_ns=self.color_t_cap_ns,
+                depth_t_cap_ns=self.depth_t_cap_ns,
                 dropped_color=self.dropped_color,
                 dropped_depth=self.dropped_depth,
             )
@@ -217,33 +246,11 @@ def make_qimage_from_rgb(rgb: np.ndarray) -> Optional[QtGui.QImage]:
     return img.copy()
 
 
-def decode_color_raw(payload: bytes, width: int, height: int) -> Optional[QtGui.QImage]:
-    if not payload or width <= 0 or height <= 0:
-        return None
-    expected = width * height * 3
-    if len(payload) != expected:
-        return None
-    arr = np.frombuffer(payload, dtype=np.uint8)
-    try:
-        bgr = arr.reshape((height, width, 3))
-    except ValueError:
+def make_qimage_from_bgr(bgr: np.ndarray) -> Optional[QtGui.QImage]:
+    if bgr is None or bgr.ndim != 3 or bgr.shape[2] != 3:
         return None
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     return make_qimage_from_rgb(rgb)
-
-
-def decode_depth_raw(payload: bytes, width: int, height: int) -> Optional[np.ndarray]:
-    if not payload or width <= 0 or height <= 0:
-        return None
-    expected = width * height
-    arr = np.frombuffer(payload, dtype=np.uint16)
-    if arr.size != expected:
-        return None
-    try:
-        depth = arr.reshape((height, width))
-    except ValueError:
-        return None
-    return depth
 
 
 def depth_to_colormap(depth: np.ndarray) -> Optional[QtGui.QImage]:
@@ -471,56 +478,66 @@ class DecoderWorker(threading.Thread):
         self.log_cb = log_cb
         self._stop_event = threading.Event()
         self._last_log = 0.0
-        self._last_color_shape: Tuple[int, int] = (0, 0)
-        self._last_depth_shape: Tuple[int, int] = (0, 0)
         self._last_color_seq = 0
         self._last_depth_seq = 0
-
-    def _resolve_shapes(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-        meta = self.state.snapshot().meta
-        color_w = int(meta.get("color_w", meta.get("w", 0)) or 0)
-        color_h = int(meta.get("color_h", meta.get("h", 0)) or 0)
-        depth_w = int(meta.get("depth_w", meta.get("w", 0)) or 0)
-        depth_h = int(meta.get("depth_h", meta.get("h", 0)) or 0)
-        if color_w > 0 and color_h > 0:
-            self._last_color_shape = (color_w, color_h)
-        if depth_w > 0 and depth_h > 0:
-            self._last_depth_shape = (depth_w, depth_h)
-        return self._last_color_shape, self._last_depth_shape
 
     def run(self) -> None:
         while not self._stop_event.is_set():
             did_work = False
-            (color_w, color_h), (depth_w, depth_h) = self._resolve_shapes()
 
             color_data = self.latest_buffer.take_if_new(TOPIC_COLOR, self._last_color_seq)
             if color_data is not None:
                 payload, ts, rx_fps, bytes_len, seq = color_data
-                image = decode_color_raw(payload, color_w, color_h)
-                if image is not None:
-                    self.frames.update_color(image, ts, bytes_len, rx_fps=rx_fps)
-                    self._last_color_seq = seq
-                else:
+                try:
+                    frame = unpack_frame(payload)
+                    if frame.kind != KIND_COLOR:
+                        raise ValueError("Unexpected frame kind for color")
+                    image = make_qimage_from_bgr(frame.array)
+                except Exception as exc:
+                    image = None
                     if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
                         self._last_log = time.monotonic()
-                        self.log_cb(f"❌ decode color failed (bytes={bytes_len})")
-                    self._last_color_seq = seq
+                        self.log_cb(f"❌ decode color failed ({exc})")
+                if image is not None:
+                    self.frames.update_color(
+                        image,
+                        ts,
+                        frame.seq,
+                        (frame.width, frame.height),
+                        frame.t_cap_ns,
+                        bytes_len,
+                        rx_fps=rx_fps,
+                    )
+                self._last_color_seq = seq
                 did_work = True
 
             depth_data = self.latest_buffer.take_if_new(TOPIC_DEPTH, self._last_depth_seq)
             if depth_data is not None:
                 payload, ts, rx_fps, bytes_len, seq = depth_data
-                depth = decode_depth_raw(payload, depth_w, depth_h)
-                if depth is not None:
+                try:
+                    frame = unpack_frame(payload)
+                    if frame.kind != KIND_DEPTH:
+                        raise ValueError("Unexpected frame kind for depth")
+                    depth = frame.array
                     depth_image = depth_to_colormap(depth)
-                    if depth_image is not None:
-                        self.frames.update_depth(depth, depth_image, ts, bytes_len, rx_fps=rx_fps)
-                    self._last_depth_seq = seq
-                else:
+                except Exception as exc:
+                    depth = None
+                    depth_image = None
                     if self.log_cb and (time.monotonic() - self._last_log) > 2.0:
                         self._last_log = time.monotonic()
-                        self.log_cb(f"❌ decode depth failed (bytes={bytes_len})")
-                    self._last_depth_seq = seq
+                        self.log_cb(f"❌ decode depth failed ({exc})")
+                if depth is not None and depth_image is not None:
+                    self.frames.update_depth(
+                        depth,
+                        depth_image,
+                        ts,
+                        frame.seq,
+                        (frame.width, frame.height),
+                        frame.t_cap_ns,
+                        bytes_len,
+                        rx_fps=rx_fps,
+                    )
+                self._last_depth_seq = seq
                 did_work = True
 
             if not did_work:
@@ -965,7 +982,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         title_layout.addWidget(self.status_label)
 
         right_header = QtWidgets.QVBoxLayout()
-        self.quick_stats = QtWidgets.QLabel("Latency: N/A | RX FPS: -- | Overwritten: --")
+        self.quick_stats = QtWidgets.QLabel("Frame age: N/A | RX FPS: -- | Overwritten: --")
         self.quick_stats.setAlignment(ALIGN_RIGHT | ALIGN_VCENTER)
         self.quick_stats.setStyleSheet("font-size: 14px; color: #c9d1d9;")
         self.recording_status = QtWidgets.QLabel("Recording: OFF")
@@ -986,7 +1003,8 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self._build_camera_tab(), "Camera")
         self.tabs.addTab(self._build_imu_tab(), "IMU")
         self.tabs.addTab(self._build_gps_tab(), "GPS")
-        self.tabs.addTab(self._build_data_tab(), "Data / Logs")
+        self.tabs.addTab(self._build_logs_tab(), "Logs")
+        self.tabs.addTab(self._build_data_tab(), "Data")
 
         root.addWidget(self.tabs, 1)
         self.setCentralWidget(central)
@@ -1098,23 +1116,27 @@ class DashboardWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(10)
 
-        top_split = QtWidgets.QSplitter(Qt.Orientation.Horizontal)
-        top_split.setChildrenCollapsible(False)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
 
-        left_panel = QtWidgets.QWidget()
-        left_layout = QtWidgets.QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(10)
-        left_layout.addWidget(self._build_data_group())
-        left_layout.addWidget(self._build_record_group())
-        left_layout.addStretch(1)
+        container = QtWidgets.QWidget()
+        container_layout = QtWidgets.QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(12)
+        container_layout.addWidget(self._build_data_group())
+        container_layout.addWidget(self._build_record_group())
+        container_layout.addStretch(1)
 
-        top_split.addWidget(left_panel)
-        top_split.addWidget(self._build_log_group())
-        top_split.setStretchFactor(0, 2)
-        top_split.setStretchFactor(1, 1)
+        scroll.setWidget(container)
+        layout.addWidget(scroll, 1)
+        return page
 
-        layout.addWidget(top_split, 1)
+    def _build_logs_tab(self) -> QtWidgets.QWidget:
+        page = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(page)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+        layout.addWidget(self._build_log_group())
         return page
 
     def _build_controls_group(self) -> QtWidgets.QGroupBox:
@@ -1175,21 +1197,24 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
     def _build_data_group(self) -> QtWidgets.QGroupBox:
         group = QtWidgets.QGroupBox("Runtime Data")
-        layout = QtWidgets.QGridLayout(group)
+        layout = QtWidgets.QFormLayout(group)
+        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        layout.setLabelAlignment(ALIGN_LEFT | ALIGN_VCENTER)
+        layout.setFormAlignment(ALIGN_LEFT | ALIGN_TOP)
         layout.setHorizontalSpacing(16)
         layout.setVerticalSpacing(8)
         layout.setContentsMargins(12, 12, 12, 12)
         group.setStyleSheet("QGroupBox { font-size: 14px; font-weight: 600; } QLabel { font-size: 13px; }")
 
-        self.data_labels: Dict[str, QtWidgets.QLabel] = {}
+        self.data_labels = {}
         fields = [
             ("cam_seq", "CAM Seq"),
             ("cam_res", "Resolution"),
             ("cam_pub_fps", "Publish FPS"),
-            ("cam_latency", "Latency (ms)"),
+            ("cam_age_ms", "Frame age (ms)"),
             ("cam_color_bytes", "Color bytes"),
             ("cam_depth_bytes", "Depth bytes"),
-            ("cam_rx_fps", "RX FPS"),
+            ("cam_rx_fps", "RX FPS (color/depth)"),
             ("dropped", "Overwritten frames"),
             ("imu_accel", "Accel (g)"),
             ("imu_gyro", "Gyro (dps)"),
@@ -1199,25 +1224,14 @@ class DashboardWindow(QtWidgets.QMainWindow):
             ("conn", "Broker"),
             ("status", "Status"),
         ]
-        mid = (len(fields) + 1) // 2
-        for idx, (key, label) in enumerate(fields):
-            col_base = 0 if idx < mid else 2
-            row = idx if idx < mid else idx - mid
 
-            label_widget = QtWidgets.QLabel(label)
-            label_widget.setAlignment(ALIGN_LEFT | ALIGN_VCENTER)
-
+        for key, label in fields:
             value_widget = QtWidgets.QLabel("--")
             value_widget.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            value_widget.setMinimumWidth(220)
+            value_widget.setMinimumWidth(260)
             value_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
-
             self.data_labels[key] = value_widget
-            layout.addWidget(label_widget, row, col_base)
-            layout.addWidget(value_widget, row, col_base + 1)
-
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(3, 1)
+            layout.addRow(QtWidgets.QLabel(label), value_widget)
         return group
 
     def _build_log_group(self) -> QtWidgets.QGroupBox:
@@ -1392,9 +1406,17 @@ class DashboardWindow(QtWidgets.QMainWindow):
         t = time.monotonic()
         color, depth_preview, depth_raw = demo_frames(t)
         if color is not None:
-            self.frames.update_color(color, t, color.sizeInBytes())
+            self.frames.update_color(color, t, 0, (color.width(), color.height()), time.time_ns(), color.sizeInBytes())
         if depth_preview is not None and depth_raw is not None:
-            self.frames.update_depth(depth_raw, depth_preview, t, depth_raw.nbytes)
+            self.frames.update_depth(
+                depth_raw,
+                depth_preview,
+                t,
+                0,
+                (depth_raw.shape[1], depth_raw.shape[0]),
+                time.time_ns(),
+                depth_raw.nbytes,
+            )
         self.state.update(
             "imu",
             {
@@ -1449,24 +1471,35 @@ class DashboardWindow(QtWidgets.QMainWindow):
             self.depth_widget.set_image(snapshot.depth_image)
 
         meta = state.meta
-        latency_ms = "N/A"
-        if meta.get("t_wall") is not None:
-            latency_ms = f"{(time.time() - float(meta['t_wall'])) * 1000.0:.1f}"
+        now_ns = time.time_ns()
+        if snapshot.color_t_cap_ns > 0:
+            age_ms = (now_ns - snapshot.color_t_cap_ns) / 1e6
+            age_text = f"{age_ms:.1f}"
+        else:
+            age_text = "N/A"
         rx_fps = f"{snapshot.color_rx_fps:.1f}/{snapshot.depth_rx_fps:.1f}"
         dropped = dropped_color + dropped_depth
-        latency_text = f"{latency_ms} ms" if latency_ms != "N/A" else latency_ms
-        self.quick_stats.setText(f"Latency: {latency_text} | RX FPS: {rx_fps} | Overwritten: {dropped}")
+        age_label = f"{age_text} ms" if age_text != "N/A" else age_text
+        self.quick_stats.setText(f"Frame age: {age_label} | RX FPS: {rx_fps} | Overwritten: {dropped}")
 
-        resolution = f"{meta.get('color_w', '--')}x{meta.get('color_h', '--')}"
+        if snapshot.color_shape != (0, 0):
+            resolution = f"{snapshot.color_shape[0]}x{snapshot.color_shape[1]}"
+        else:
+            resolution = f"{meta.get('color_w', '--')}x{meta.get('color_h', '--')}"
         overlay_color = (
             f"Res: {resolution}",
-            f"Latency: {latency_text}",
+            f"Frame age: {age_label}",
             f"RX FPS: {snapshot.color_rx_fps:.1f}",
             f"Bytes: {snapshot.color_bytes}",
             f"Overwritten: {dropped_color}",
         )
+        depth_res = (
+            f"{snapshot.depth_shape[0]}x{snapshot.depth_shape[1]}"
+            if snapshot.depth_shape != (0, 0)
+            else f"{meta.get('depth_w', '--')}x{meta.get('depth_h', '--')}"
+        )
         overlay_depth = (
-            f"Res: {meta.get('depth_w', '--')}x{meta.get('depth_h', '--')}",
+            f"Res: {depth_res}",
             f"RX FPS: {snapshot.depth_rx_fps:.1f}",
             f"Bytes: {snapshot.depth_bytes}",
             f"Overwritten: {dropped_depth}",
@@ -1474,13 +1507,13 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.color_widget.set_overlay(overlay_color)
         self.depth_widget.set_overlay(overlay_depth)
 
-        self.data_labels["cam_seq"].setText(str(meta.get("seq", "--")))
+        self.data_labels["cam_seq"].setText(str(snapshot.color_seq or "--"))
         self.data_labels["cam_res"].setText(resolution)
         self.data_labels["cam_pub_fps"].setText(f"{meta.get('pub_fps', '--')}")
-        self.data_labels["cam_latency"].setText(latency_text)
+        self.data_labels["cam_age_ms"].setText(age_label)
         self.data_labels["cam_color_bytes"].setText(str(snapshot.color_bytes))
         self.data_labels["cam_depth_bytes"].setText(str(snapshot.depth_bytes))
-        self.data_labels["cam_rx_fps"].setText(f"{snapshot.color_rx_fps:.1f}")
+        self.data_labels["cam_rx_fps"].setText(rx_fps)
         self.data_labels["dropped"].setText(str(dropped))
 
         imu = state.imu
