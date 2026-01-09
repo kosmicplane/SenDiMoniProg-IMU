@@ -30,7 +30,7 @@ PUB_PERIOD = 1.0 / PUB_HZ
 # (not recommended on LTE if IMU sends very fast)
 # ----------------------------
 
-EXPECTED_FIELDS = 13
+EXPECTED_FIELDS = 14
 
 
 def connect_serial():
@@ -79,7 +79,7 @@ def make_mqtt_client():
 
 
 def is_valid_csv12(line: str) -> bool:
-    """Light validation: 12 comma-separated fields."""
+    """Light validation: 14 comma-separated fields."""
     parts = [p.strip() for p in line.split(",")]
     return len(parts) == EXPECTED_FIELDS
 
