@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -11,18 +12,22 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import pyrealsense2 as rs  # comes from librealsense install
 
+from frame_codec import KIND_COLOR, KIND_DEPTH, pack_frame
+
 # ---------- MQTT ----------
 BROKER_HOST = "test.mosquitto.org"
 BROKER_PORT = 1883
 MQTT_USER = ""      # optional
 MQTT_PASS = ""      # optional
 
-TOPIC_COLOR = "cam/jetson01/color_raw"
-TOPIC_DEPTH = "cam/jetson01/depth_raw"
+TOPIC_COLOR = "cam/jetson01/color_mat"
+TOPIC_DEPTH = "cam/jetson01/depth_mat"
 TOPIC_META = "cam/jetson01/meta"
 TOPIC_CONTROL = "cam/jetson01/control"
 TOPIC_STATUS = "cam/jetson01/status"
 TOPIC_CALIB = "cam/jetson01/calib"
+
+USE_LZ4 = os.getenv("RSF_LZ4", "0") == "1"
 
 # ---------- Camera / publish tuning ----------
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -151,6 +156,14 @@ def start_pipeline(config: Dict[str, Any]):
     intrinsics = get_intrinsics(profile)
     model = profile.get_device().get_info(rs.camera_info.name)
 
+    try:
+        sensors = profile.get_device().query_sensors()
+        for sensor in sensors:
+            if sensor.supports(rs.option.frames_queue_size):
+                sensor.set_option(rs.option.frames_queue_size, 1)
+    except Exception:
+        pass
+
     return pipeline, align, depth_scale, intrinsics, model
 
 
@@ -212,6 +225,30 @@ def main():
     seq = 0
     last_pub = time.monotonic()
     recorder = Recorder()
+    capture_thread = None
+    capture_state = {"color": None, "depth": None, "t_cap_ns": 0}
+    capture_lock = threading.Lock()
+    capture_stop = threading.Event()
+
+    def capture_loop() -> None:
+        while not capture_stop.is_set() and pipeline is not None:
+            try:
+                frames = pipeline.wait_for_frames()
+                if align is not None:
+                    frames = align.process(frames)
+                color_frame = frames.get_color_frame()
+                depth_frame = frames.get_depth_frame()
+                if not color_frame or not depth_frame:
+                    continue
+                color = np.asanyarray(color_frame.get_data())
+                depth_raw = np.asanyarray(depth_frame.get_data())
+                t_cap_ns = time.time_ns()
+                with capture_lock:
+                    capture_state["color"] = color
+                    capture_state["depth"] = depth_raw
+                    capture_state["t_cap_ns"] = t_cap_ns
+            except Exception:
+                time.sleep(0.01)
 
     try:
         while True:
@@ -223,10 +260,16 @@ def main():
                         pass
                 if recorder.output_dir is not None:
                     recorder.stop()
+                capture_stop.set()
+                if capture_thread is not None:
+                    capture_thread.join(timeout=1.0)
                 restart_event.clear()
                 with config_lock:
                     pipeline, align, depth_scale, intrinsics, device_model = start_pipeline(config)
                 status_event.set()
+                capture_stop.clear()
+                capture_thread = threading.Thread(target=capture_loop, daemon=True)
+                capture_thread.start()
                 if intrinsics is not None:
                     client.publish(TOPIC_CALIB, json.dumps({
                         "fx": intrinsics["fx"],
@@ -266,7 +309,11 @@ def main():
                     except Exception:
                         pass
                     pipeline = None
-                    print("⏸ Streaming paused", flush=True)
+                capture_stop.set()
+                if capture_thread is not None:
+                    capture_thread.join(timeout=1.0)
+                    capture_thread = None
+                print("⏸ Streaming paused", flush=True)
                 if recorder.output_dir is not None:
                     recorder.stop()
                 time.sleep(0.1)
@@ -275,24 +322,21 @@ def main():
             if pipeline is None:
                 continue
 
-            frames = pipeline.wait_for_frames()
-            if align is not None:
-                frames = align.process(frames)
-
-            color_frame = frames.get_color_frame()
-            depth_frame = frames.get_depth_frame()
-            if not color_frame or not depth_frame:
+            with capture_lock:
+                color = capture_state["color"]
+                depth_raw = capture_state["depth"]
+                t_cap_ns = capture_state["t_cap_ns"]
+            if color is None or depth_raw is None:
+                time.sleep(0.005)
                 continue
-            color = np.asanyarray(color_frame.get_data())  # BGR8
-            depth_raw = np.asanyarray(depth_frame.get_data())  # Z16
 
             now = time.monotonic()
             pub_period = 1.0 / max(1, cfg_snapshot["pub_hz"])
             if (now - last_pub) >= pub_period:
                 last_pub = now
 
-                color_payload = np.ascontiguousarray(color).tobytes()
-                depth_payload = np.ascontiguousarray(depth_raw).tobytes()
+                color_payload = pack_frame(KIND_COLOR, seq, t_cap_ns, color, compress=USE_LZ4)
+                depth_payload = pack_frame(KIND_DEPTH, seq, t_cap_ns, depth_raw, compress=USE_LZ4)
 
                 client.publish(TOPIC_COLOR, payload=color_payload, qos=0, retain=False)
                 client.publish(TOPIC_DEPTH, payload=depth_payload, qos=0, retain=False)
@@ -306,23 +350,21 @@ def main():
                 meta = {
                     "seq": seq,
                     "t_wall": time.time(),
+                    "t_cap_ns": t_cap_ns,
                     "color_bytes": len(color_payload),
                     "depth_bytes": len(depth_payload),
                     "color_w": cfg_snapshot["color_w"],
                     "color_h": cfg_snapshot["color_h"],
                     "depth_w": cfg_snapshot["depth_w"],
                     "depth_h": cfg_snapshot["depth_h"],
-                    "color_channels": 3,
-                    "color_dtype": "uint8",
-                    "depth_dtype": "uint16",
-                    "color_format": "bgr8",
-                    "depth_format": "z16",
                     "pub_hz": cfg_snapshot["pub_hz"],
                     "pub_fps": pub_fps,
+                    "model": device_model,
                     "record_enabled": cfg_snapshot["record_enabled"],
                     "streaming_enabled": cfg_snapshot["streaming_enabled"],
                     "intrinsics": intrinsics,
                     "depth_scale": depth_scale,
+                    "lz4": USE_LZ4,
                 }
                 client.publish(TOPIC_META, json.dumps(meta), qos=0, retain=False)
 
@@ -340,6 +382,9 @@ def main():
     except KeyboardInterrupt:
         print("\n🛑 Stopped.", flush=True)
     finally:
+        capture_stop.set()
+        if capture_thread is not None:
+            capture_thread.join(timeout=1.0)
         try:
             if pipeline is not None:
                 pipeline.stop()

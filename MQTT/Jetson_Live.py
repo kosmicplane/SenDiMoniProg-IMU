@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 import serial
 import paho.mqtt.client as mqtt
@@ -13,7 +14,6 @@ SER_BAUD = 230400
 # MQTT settings
 # ----------------------------
 BROKER_HOST = "test.mosquitto.org"
-#BROKER_HOST = "test.mosquitto.org"
 BROKER_PORT = 1883
 MQTT_USER = ""      # optional
 MQTT_PASS = ""      # optional
