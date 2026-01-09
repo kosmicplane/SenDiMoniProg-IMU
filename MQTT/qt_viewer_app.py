@@ -64,12 +64,25 @@ def timestamp_now() -> str:
 
 def parse_imu_csv(line: str) -> Optional[Dict[str, Any]]:
     parts = [p.strip() for p in line.split(",")]
-    if len(parts) != 14:
+
+    # Ignora headers tipo: "timestamp_iso,t_sec,..."
+    if parts and parts[0].lower().startswith("timestamp"):
         return None
+
+    # Caso normal: 12 floats (ax..alt)
+    if len(parts) == 12:
+        nums = parts
+    # Compat: 14 columnas (timestamp_iso,t_sec + 12)
+    elif len(parts) == 14:
+        nums = parts[2:]
+    else:
+        return None
+
     try:
-        values = list(map(float, parts))
+        values = list(map(float, nums))
     except ValueError:
         return None
+
     data = dict(
         zip(
             [
@@ -89,7 +102,6 @@ def parse_imu_csv(line: str) -> Optional[Dict[str, Any]]:
         "temp_c": data["t_C"],
         "alt_m": data["alt_m"],
     }
-
 
 @dataclass
 class LatestFrames:
