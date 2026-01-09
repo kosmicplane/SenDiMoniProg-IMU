@@ -15,10 +15,10 @@ import paho.mqtt.client as mqtt
 # ----------------------------
 # MQTT configuration
 # ----------------------------
-BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
-BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USER = os.getenv("MQTT_USER", "")
-MQTT_PASS = os.getenv("MQTT_PASS", "")
+BROKER_HOST = "test.mosquitto.org"
+BROKER_PORT = 1883
+MQTT_USER = ""      # optional
+MQTT_PASS = ""      # optional
 
 TOPIC_RAW = "imu/jetson01/raw"   # must match Jetson publisher topic
 
