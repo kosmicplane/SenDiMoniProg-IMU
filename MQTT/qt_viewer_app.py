@@ -64,7 +64,7 @@ def timestamp_now() -> str:
 
 def parse_imu_csv(line: str) -> Optional[Dict[str, Any]]:
     parts = [p.strip() for p in line.split(",")]
-    if len(parts) != 12:
+    if len(parts) != 13:
         return None
     try:
         values = list(map(float, parts))
