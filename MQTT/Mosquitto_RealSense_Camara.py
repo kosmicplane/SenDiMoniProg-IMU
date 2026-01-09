@@ -15,10 +15,10 @@ import pyrealsense2 as rs  # comes from librealsense install
 from frame_codec import KIND_COLOR, KIND_DEPTH, pack_frame
 
 # ---------- MQTT ----------
-BROKER_HOST = "test.mosquitto.org"
-BROKER_PORT = 1883
-MQTT_USER = ""      # optional
-MQTT_PASS = ""      # optional
+BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
+BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USER = os.getenv("MQTT_USER", "")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 TOPIC_COLOR = "cam/jetson01/color_mat"
 TOPIC_DEPTH = "cam/jetson01/depth_mat"

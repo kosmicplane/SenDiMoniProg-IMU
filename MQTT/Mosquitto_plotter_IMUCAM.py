@@ -20,10 +20,10 @@ from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider
 # ----------------------------
 # MQTT configuration
 # ----------------------------
-BROKER_HOST = "test.mosquitto.org"
-BROKER_PORT = 1883
-MQTT_USER = ""      # optional
-MQTT_PASS = ""      # optional
+BROKER_HOST = os.getenv("MQTT_HOST", "test.mosquitto.org")
+BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USER = os.getenv("MQTT_USER", "")
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 TOPIC_RAW = "imu/jetson01/raw"           # IMU: CSV 12 fields
 TOPIC_COLOR = "cam/jetson01/color_jpg"   # Camera: JPEG bytes
