@@ -30,7 +30,7 @@ PUB_PERIOD = 1.0 / PUB_HZ
 # (not recommended on LTE if IMU sends very fast)
 # ----------------------------
 
-EXPECTED_FIELDS = 14
+EXPECTED_FIELDS = 12
 
 
 def connect_serial():
