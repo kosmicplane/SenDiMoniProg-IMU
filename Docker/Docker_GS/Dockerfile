@@ -58,7 +58,7 @@ RUN apt-get update && apt-get install -y \
 
 # 🔹 Librerías Python científicas y AHRS
 RUN pip3 install --no-cache-dir --break-system-packages \
-    numpy scipy matplotlib pandas openpyxl ahrs
+    numpy scipy matplotlib pandas openpyxl ahrs websockets
 
 # ===============================================================
 # 🔹 Clonar y almacenar el proyecto

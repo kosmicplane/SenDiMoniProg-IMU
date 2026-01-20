@@ -64,7 +64,7 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Python dependencies
 # -------------------------------
-RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl websockets
 
 # -------------------------------
 # ROS environment variables
