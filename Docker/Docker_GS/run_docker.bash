@@ -18,4 +18,4 @@ docker run -it --rm \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume="$XAUTH:$XAUTH" \
     --privileged \
-    badkitten:offline
+    ground_station:online
