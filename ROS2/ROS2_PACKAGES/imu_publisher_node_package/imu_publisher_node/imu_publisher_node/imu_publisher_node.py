@@ -189,7 +189,7 @@ def main(args=None):
                 s = last_sample
 
                 clear_screen()
-                print("✅ ESP32 IMU (última muestra)  |  Ctrl+C para salir\n", flush=True)
+                print("✅ ESP32 IMU (última muestra) :)  |  Ctrl+C para salir\n", flush=True)
                 print(f"ACC [g]   ax={s['ax_g']:+8.3f}  ay={s['ay_g']:+8.3f}  az={s['az_g']:+8.3f}", flush=True)
                 print(f"GYR [dps] gx={s['gx_dps']:+8.3f}  gy={s['gy_dps']:+8.3f}  gz={s['gz_dps']:+8.3f}", flush=True)
                 print(f"MAG [uT]  mx={s['mx_uT']:+9.3f}  my={s['mx_uT']:+9.3f}  mz={s['mz_uT']:+9.3f}", flush=True)
