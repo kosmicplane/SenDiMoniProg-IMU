@@ -33,7 +33,7 @@ class ImuWsClient(Node):
         # Parameters:
         # - ws_url: URL of the WebSocket server on the Jetson
         # - imu_topic: ROS 2 topic to publish Imu messages on the PC
-        self.declare_parameter('ws_url', 'ws://127.0.0.1:8765')
+        self.declare_parameter('ws_url', 'ws://100.70.28.30:8765')
         self.declare_parameter('imu_topic', '/imu/data')
 
         self.ws_url = self.get_parameter('ws_url').get_parameter_value().string_value

@@ -5,7 +5,7 @@ over a WebSocket server.
 This node is intended to run on the Jetson Nano side.
 
 - Subscribes to: /imu/data (sensor_msgs/Imu)
-- Serves: ws://0.0.0.0:8765 by default
+- Serves: ws://100.91.177.83:8765 by default
 - Sends each IMU message as a JSON string to all connected clients.
 """
 
@@ -32,7 +32,7 @@ class ImuWsServer(Node):
 
         # Declare configurable parameters with default values
         self.declare_parameter('imu_topic', '/imu/data')
-        self.declare_parameter('ws_host', '0.0.0.0')
+        self.declare_parameter('ws_host', '100.91.177.83')
         self.declare_parameter('ws_port', 8765)
 
         imu_topic = self.get_parameter('imu_topic').get_parameter_value().string_value
