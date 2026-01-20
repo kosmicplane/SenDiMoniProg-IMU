@@ -1,1 +1,0 @@
-t,Ax,Ay,Az,Gx,Gy,Gz,Mx,My,Mz,Alt
