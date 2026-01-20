@@ -23,7 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             # This gives you: `ros2 run imu_bt_publisher imu_publisher`
-            'imu_publisher = imu_bt_publisher.imu_publisher:main',
+            'imu_publisher = imu_bt_publisher.imu_bt_publisher:main',
         ],
     },
 )
