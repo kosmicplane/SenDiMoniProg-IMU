@@ -127,23 +127,23 @@ class ImuWsServer(Node):
         # Bind the new event loop to this thread
         asyncio.set_event_loop(self._loop)
 
-        async def handler(websocket, path):
+        async def handler(websocket):
             """
             Handler for each connected WebSocket client.
 
-            We do not expect to receive messages from the client side for now,
-            so we simply keep the connection open and send IMU data from the
-            ROS callback.
+            With websockets >= 12, the server handler receives a single
+            WebSocketServerProtocol instance (no path argument).
             """
             self._clients.add(websocket)
             self.get_logger().info('WebSocket client connected.')
             try:
                 async for _ in websocket:
-                    # Ignore incoming data from the client
+                    # Ignore incoming data from the client for this simple bridge
                     pass
             finally:
                 self.get_logger().info('WebSocket client disconnected.')
                 self._clients.discard(websocket)
+
 
         async def server_main():
             """
