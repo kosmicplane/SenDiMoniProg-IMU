@@ -26,24 +26,6 @@ ros2 --version
 
 ---
 
-## 🔑 SSH Key Setup
-
-1. Generate a new SSH key (replace `"your github email"` with your GitHub email):
-
-```bash
-ssh-keygen -t ed25519 -C "your github email"
-eval "$(ssh-agent -s)"
-ssh-add ~/.ssh/id_ed25519
-cat ~/.ssh/id_ed25519.pub
-```
-
-2. Copy the generated public key and add it to your GitHub account:  
-   - Go to **Settings > SSH and GPG keys**  
-   - Click **New SSH Key**  
-   - Paste your key and save
-
----
-
 ## 📥 Clone the Repository
 
 Clone the repo using SSH:
