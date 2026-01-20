@@ -137,10 +137,10 @@ class BluetoothIMUPublisher(Node):
 
             # OJO: en ahrs, normalmente se usa updateIMU/updateMARG.
             # Si "update(...)" te da error, cambia a updateMARG:
-	    now_t = time.monotonic()
-	    dt = now_t - self.last_t
-	    self.last_t = now_t
-	    self.madgwick.frequency = 1.0 / max(dt, 1e-3)
+            now_t = time.monotonic()
+            dt = now_t - self.last_t
+            self.last_t = now_t
+            self.madgwick.frequency = 1.0 / max(dt, 1e-3)
 
             self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
             # self.q = self.madgwick.update(self.q, gyr=gyr, acc=acc, mag=mag)
@@ -161,11 +161,11 @@ class BluetoothIMUPublisher(Node):
             )
             roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
             now_m = time.monotonic()
-	    if now_m - self.last_print > 0.5:
-	      self.last_print = now_m
-	      self.get_logger().info(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | " f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | " f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | " f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | " f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || " f"[SI] ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, " f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
-        except Exception as e:
-            self.get_logger().warn(f"Parse error: {e}")
+            if now_m - self.last_print > 0.5:
+            self.last_print = now_m
+            self.get_logger().info(f"✅ Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | " f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | " f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | " f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | " f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m || " f"[SI] ax={imu_raw.linear_acceleration.x:+7.3f}, ay={imu_raw.linear_acceleration.y:+7.3f}, " f"az={imu_raw.linear_acceleration.z:+7.3f} m/s2")
+            except Exception as e:
+                self.get_logger().warn(f"Parse error: {e}")
 
     def quaternion_to_euler(self, x, y, z, w):
         t0 = +2.0 * (w * x + y * z)

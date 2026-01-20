@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>imu_ws_client</name>
+  <version>0.0.1</version>
+  <description>ROS 2 node that subscribes to IMU data from a WebSocket server and republishes it as sensor_msgs/Imu.</description>
+
+  <maintainer email="claudio@example.com">Claudio</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
