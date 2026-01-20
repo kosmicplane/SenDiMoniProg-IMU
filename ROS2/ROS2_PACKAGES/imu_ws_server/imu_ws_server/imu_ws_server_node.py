@@ -124,10 +124,12 @@ class ImuWsServer(Node):
     # ------------------------------------------------------------------
     def _run_ws_server(self) -> None:
         """Set up and run the WebSocket server in its own asyncio loop."""
+        # Bind the new event loop to this thread
         asyncio.set_event_loop(self._loop)
 
-        async def handler(websocket, path) -> None:
-            """Handler for each connected WebSocket client.
+        async def handler(websocket, path):
+            """
+            Handler for each connected WebSocket client.
 
             We do not expect to receive messages from the client side for now,
             so we simply keep the connection open and send IMU data from the
@@ -137,23 +139,31 @@ class ImuWsServer(Node):
             self.get_logger().info('WebSocket client connected.')
             try:
                 async for _ in websocket:
-                    # Ignore incoming data from client for this simple bridge
+                    # Ignore incoming data from the client
                     pass
             finally:
                 self.get_logger().info('WebSocket client disconnected.')
                 self._clients.discard(websocket)
 
-        # Create and start the WebSocket server
-        start_server = websockets.serve(handler, self.ws_host, self.ws_port)
-        self._loop.run_until_complete(start_server)
-        self.get_logger().info(
-            f'WebSocket server listening on ws://{self.ws_host}:{self.ws_port}'
-        )
-        self._loop.run_forever()
+        async def server_main():
+            """
+            Coroutine that starts the WebSocket server and keeps it running
+            forever.
 
-    # ------------------------------------------------------------------
-    # Cleanup
-    # ------------------------------------------------------------------
+            In websockets >= 12, websockets.serve() must be awaited from within
+            a running event loop, hence this coroutine.
+            """
+            # Start the server (this uses the currently running loop)
+            await websockets.serve(handler, self.ws_host, self.ws_port)
+            self.get_logger().info(
+                f'WebSocket server listening on ws://{self.ws_host}:{self.ws_port}'
+            )
+            # Block forever (until the loop is stopped from another thread)
+            await asyncio.Future()
+
+        # Run the server coroutine in this thread's event loop
+        self._loop.run_until_complete(server_main())
+
     def destroy_node(self):  # type: ignore[override]
         """Cleanly stop the WebSocket loop when shutting down."""
         try:
