@@ -4,7 +4,7 @@
   <version>0.0.1</version>
   <description>ROS 2 node that subscribes to IMU data from a WebSocket server and republishes it as sensor_msgs/Imu.</description>
 
-  <maintainer email="claudio@example.com">Claudio</maintainer>
+  <maintainer email="juan.beron@upb.edu.co">Esteban</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
