@@ -69,10 +69,6 @@ def build_imu_msg(node, s: dict) -> Imu:
     msg.angular_velocity.z = s["gz_dps"] * DEG_TO_RAD
 
     # Orientación identidad
-    msg.orientation.w = 1.0
-    msg.orientation.x = 0.0
-    msg.orientation.y = 0.0
-    msg.orientation.z = 0.0
 
     return msg
 
