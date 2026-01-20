@@ -1,232 +1,401 @@
 #!/usr/bin/env python3
-"""ROS 2 node that reads IMU data from an ESP32 over RFCOMM (/dev/rfcomm0)
-and publishes standard ROS 2 IMU-related topics.
-
-This file is adapted from the original imu_publisher.py in the SenDiMoniProg-IMU
-project, wrapped as a self-contained ament_python package.
-"""
-
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Imu, MagneticField, FluidPressure, Temperature
-from std_msgs.msg import Float32
 import serial
 import time
-import numpy as np
+import os
+import sys
 import math
-from ahrs.filters import Madgwick
 
-# Constants
-G_TO_MS2 = 9.80665     # g → m/s²
-UT_TO_T  = 1e-6        # μT → T
+import rclpy
+from sensor_msgs.msg import Imu
+
+PORT = "/dev/rfcomm0"
+BAUDRATE = 230400
+PRINT_HZ = 10.0
+PRINT_PERIOD = 1.0 / PRINT_HZ
+
+FIELDS = [
+    "ax_g","ay_g","az_g",
+    "gx_dps","gy_dps","gz_dps",
+    "mx_uT","my_uT","mz_uT",
+    "p_hpa","t_C","alt_m"
+]
+
+G_TO_MS2   = 9.80665
+DEG_TO_RAD = math.pi / 180.0
 
 
-class BluetoothIMUPublisher(Node):
-    """Node that reads CSV IMU data from /dev/rfcomm0 and publishes ROS topics."""
-
-    def __init__(self):
-        super().__init__('bluetooth_imu_publisher')
-
-        # Publishers
-        self.imu_raw_pub   = self.create_publisher(Imu,           'imu/data_raw',    10)
-        self.imu_fused_pub = self.create_publisher(Imu,           'imu/data',        10)
-        self.mag_pub       = self.create_publisher(MagneticField, 'imu/mag',         10)
-        self.pres_pub      = self.create_publisher(FluidPressure, 'imu/pressure',    10)
-        self.temp_pub      = self.create_publisher(Temperature,   'imu/temperature', 10)
-        self.alt_pub       = self.create_publisher(Float32,       'imu/altitude',    10)
-
-        # Serial port configuration
-        self.port = "/dev/rfcomm0"
-        self.baudrate = 230400
-        self.ser = None
-        self.connect_serial()
-
-        # State for Madgwick fusion and logging
-        self.last_t = time.monotonic()
-        self.last_print_ns = 0
-        self.print_period_ns = int(1e9 / 10)  # 10 Hz
-        self.madgwick = Madgwick(beta=0.2, frequency=50)  # Initial frequency, updated dynamically
-        self.q = np.array([1.0, 0.0, 0.0, 0.0])
-
-        # Buffer for partial lines coming from serial
-        self.rx_buf = ""
-
-        # Timer at 50 Hz (0.02s)
-        self.timer = self.create_timer(0.02, self.read_data)
-        self.get_logger().info("✅ IMU Bluetooth publisher with Madgwick fusion started")
-
-    def connect_serial(self):
-        """Try to connect to the RFCOMM serial port with retries."""
-        while self.ser is None:
-            try:
-                self.ser = serial.Serial(self.port, self.baudrate, timeout=0.0)
-                self.get_logger().info(f"✅ Connected to {self.port}")
-            except Exception as e:
-                self.get_logger().error(f"Retrying connection: {e}")
-                time.sleep(2)
-
-    def read_data(self):
-        """Read available bytes from the serial buffer and process complete lines."""
+def connect_serial():
+    while True:
         try:
-            n = self.ser.in_waiting
-            if n == 0:
-                return
-
-            data = self.ser.read(n).decode(errors='ignore')
-            self.rx_buf += data
-
-            # Process all complete lines and keep the last one
-            last_line = None
-            while '\n' in self.rx_buf:
-                line, self.rx_buf = self.rx_buf.split('\n', 1)
-                line = line.strip()
-                if line:
-                    last_line = line
-
-            if last_line is not None:
-                self.process_line(last_line)
-
+            ser = serial.Serial(PORT, BAUDRATE, timeout=0)
+            print(f"✅ Connected to {PORT}", flush=True)
+            return ser
         except Exception as e:
-            self.get_logger().warn(f"Read error: {e}")
+            print(f"⚠️  Retrying connection: {e}", flush=True)
+            time.sleep(1)
 
-    def process_line(self, line: str):
-        """Parse one CSV line of IMU data and publish ROS 2 messages."""
-        try:
-            parts = [p.strip() for p in line.split(',')]
-            if len(parts) != 12:
-                return
 
-            # --- Parse CSV fields ---
-            ax_g, ay_g, az_g = map(float, parts[0:3])
-            gx_dps, gy_dps, gz_dps = map(float, parts[3:6])
-            mx_uT, my_uT, mz_uT = map(float, parts[6:9])
+def parse_csv12(line: str):
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) != 12:
+        # Debug: ver qué está llegando
+        # print(f"[DEBUG] Line with {len(parts)} fields, skipping: {line}", flush=True)
+        return None
+    try:
+        vals = list(map(float, parts))
+        return dict(zip(FIELDS, vals))
+    except ValueError:
+        # print(f"[DEBUG] ValueError parsing line: {line}", flush=True)
+        return None
 
-            pressure_hpa = float(parts[9])
-            tempC        = float(parts[10])
-            altitude_m   = float(parts[11])
 
-            now = self.get_clock().now().to_msg()
+def clear_screen():
+    # más rápido que os.system("clear") y funciona bien en terminal
+    print("\x1b[2J\x1b[H", end="", flush=True)
 
-            # --- Raw IMU message (SI units) ---
-            imu_raw = Imu()
-            imu_raw.header.frame_id = "imu_link"
-            imu_raw.header.stamp = now
 
-            imu_raw.linear_acceleration.x = ax_g * G_TO_MS2
-            imu_raw.linear_acceleration.y = ay_g * G_TO_MS2
-            imu_raw.linear_acceleration.z = az_g * G_TO_MS2
+def build_imu_msg(node, s: dict) -> Imu:
+    now = node.get_clock().now().to_msg()
+    msg = Imu()
+    msg.header.stamp = now
+    msg.header.frame_id = "imu_link"
 
-            # deg/s → rad/s
-            imu_raw.angular_velocity.x = math.radians(gx_dps)
-            imu_raw.angular_velocity.y = math.radians(gy_dps)
-            imu_raw.angular_velocity.z = math.radians(gz_dps)
+    msg.linear_acceleration.x = s["ax_g"] * G_TO_MS2
+    msg.linear_acceleration.y = s["ay_g"] * G_TO_MS2
+    msg.linear_acceleration.z = s["az_g"] * G_TO_MS2
 
-            self.imu_raw_pub.publish(imu_raw)
+    msg.angular_velocity.x = s["gx_dps"] * DEG_TO_RAD
+    msg.angular_velocity.y = s["gy_dps"] * DEG_TO_RAD
+    msg.angular_velocity.z = s["gz_dps"] * DEG_TO_RAD
 
-            # --- MagneticField message (Tesla) ---
-            mag_msg = MagneticField()
-            mag_msg.header = imu_raw.header
-            mag_msg.magnetic_field.x = mx_uT * UT_TO_T
-            mag_msg.magnetic_field.y = my_uT * UT_TO_T
-            mag_msg.magnetic_field.z = mz_uT * UT_TO_T
-            self.mag_pub.publish(mag_msg)
+    # Orientación identidad
 
-            # --- Pressure, Temperature, Altitude ---
-            pres_msg = FluidPressure()
-            pres_msg.header = imu_raw.header
-            pres_msg.fluid_pressure = pressure_hpa * 100.0  # hPa → Pa
-            self.pres_pub.publish(pres_msg)
-
-            temp_msg = Temperature()
-            temp_msg.header = imu_raw.header
-            temp_msg.temperature = tempC
-            self.temp_pub.publish(temp_msg)
-
-            alt_msg = Float32()
-            alt_msg.data = altitude_m
-            self.alt_pub.publish(alt_msg)
-
-            # --- Madgwick fusion ---
-            acc = np.array([ax_g, ay_g, az_g])
-            gyr = np.radians(np.array([gx_dps, gy_dps, gz_dps]))  # rad/s
-            mag = np.array([mx_uT, my_uT, mz_uT]) * UT_TO_T       # Tesla
-
-            now_t = time.monotonic()
-            dt = now_t - self.last_t
-            self.last_t = now_t
-            # Avoid division by zero
-            self.madgwick.frequency = 1.0 / max(dt, 1e-3)
-
-            # Use updateMARG for full IMU + magnetometer fusion
-            self.q = self.madgwick.updateMARG(self.q, gyr=gyr, acc=acc, mag=mag)
-
-            imu_fused = Imu()
-            imu_fused.header = imu_raw.header
-            imu_fused.orientation.w = float(self.q[0])
-            imu_fused.orientation.x = float(self.q[1])
-            imu_fused.orientation.y = float(self.q[2])
-            imu_fused.orientation.z = float(self.q[3])
-            imu_fused.angular_velocity = imu_raw.angular_velocity
-            imu_fused.linear_acceleration = imu_raw.linear_acceleration
-            self.imu_fused_pub.publish(imu_fused)
-
-            # --- Euler angles (for logging, in degrees) ---
-            roll, pitch, yaw = self.quaternion_to_euler(
-                self.q[1], self.q[2], self.q[3], self.q[0]
-            )
-            roll_deg, pitch_deg, yaw_deg = map(math.degrees, [roll, pitch, yaw])
-
-            now_ns = self.get_clock().now().nanoseconds
-            if now_ns - self.last_print_ns > self.print_period_ns:
-                self.last_print_ns = now_ns
-
-                # PRINT extra: quaternion fused (para ver que sigue cambiando)
-                print(
-                    f"[FUSED] q=({self.q[0]:+6.3f}, {self.q[1]:+6.3f}, "
-                    f"{self.q[2]:+6.3f}, {self.q[3]:+6.3f})",
-                    flush=True,
-                )
-
-                self.get_logger().info(
-                    f"Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "  # noqa: E501
-                    f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "      # noqa: E501
-                    f"gx={gx_dps:+8.3f}, gy={gy_dps:+8.3f}, gz={gz_dps:+8.3f} dps | "         # noqa: E501
-                    f"mx={mx_uT:+9.3f}, my={my_uT:+9.3f}, mz={mz_uT:+9.3f} uT | "             # noqa: E501
-                    f"p={pressure_hpa:8.2f} hPa, T={tempC:6.2f} C, Alt={altitude_m:7.2f} m"   # noqa: E501
-                )
-
-        except Exception as e:
-            self.get_logger().warn(f"Parse error: {e}")
-
-    def quaternion_to_euler(self, x, y, z, w):
-        """Convert a quaternion into roll, pitch, yaw (radians)."""
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll = math.atan2(t0, t1)
-
-        t2 = +2.0 * (w * y - z * x)
-        t2 = max(min(t2, +1.0), -1.0)
-        pitch = math.asin(t2)
-
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw = math.atan2(t3, t4)
-
-        return roll, pitch, yaw
+    return msg
 
 
 def main(args=None):
-    """Main entry point for the ROS 2 node."""
+    # -------- ROS2 init --------
     rclpy.init(args=args)
-    node = BluetoothIMUPublisher()
+    node = rclpy.create_node("simple_imu_publisher")
+    imu_pub = node.create_publisher(Imu, "/imu/data", 10)
+
+    # Forzar salida line-buffered para que los print se vean
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
         pass
+
+    print("✅ ROS2 node 'simple_imu_publisher' starting...", flush=True)
+
+    # -------- Serial --------
+    ser = connect_serial()
+    rx_buf = ""
+    last_sample = None
+    last_print_t = time.monotonic()
+
+    clear_screen()
+    print("✅ Connected. Ctrl+C to stop.\n", flush=True)
+    print("✅ Publishing Imu on /imu/data\n", flush=True)
+
+    try:
+        while rclpy.ok():
+            # Procesar callbacks ROS
+            rclpy.spin_once(node, timeout_sec=0.0)
+
+            n = ser.in_waiting
+            if n:
+                chunk = ser.read(n).decode("utf-8", errors="ignore")
+                rx_buf += chunk
+
+                while "\n" in rx_buf:
+                    line, rx_buf = rx_buf.split("\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    sample = parse_csv12(line)
+                    if sample is not None:
+                        last_sample = sample
+
+            now = time.monotonic()
+            if last_sample is not None and (now - last_print_t) >= PRINT_PERIOD:
+                last_print_t = now
+                s = last_sample
+
+                clear_screen()
+                print("✅ ESP32 IMU (última muestra)  |  Ctrl+C para salir\n", flush=True)
+                print(f"ACC [g]   ax={s['ax_g']:+8.3f}  ay={s['ay_g']:+8.3f}  az={s['az_g']:+8.3f}", flush=True)
+                print(f"GYR [dps] gx={s['gx_dps']:+8.3f}  gy={s['gy_dps']:+8.3f}  gz={s['gz_dps']:+8.3f}", flush=True)
+                print(f"MAG [uT]  mx={s['mx_uT']:+9.3f}  my={s['my_uT']:+9.3f}  mz={s['mz_uT']:+9.3f}", flush=True)
+                print(f"P/T/Alt   P={s['p_hpa']:9.2f} hPa   T={s['t_C']:6.2f} °C   Alt={s['alt_m']:8.2f} m\n", flush=True)
+                print(f"Print rate: {PRINT_HZ:.1f} Hz", flush=True)
+
+                # Publicar en ROS
+                imu_msg = build_imu_msg(node, s)
+                imu_pub.publish(imu_msg)
+
+            if n == 0:
+                time.sleep(0.002)
+
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped.", flush=True)
     finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
         node.destroy_node()
         rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+import serial
+import time
+import os
+import sys
+import math
+
+import rclpy
+from sensor_msgs.msg import Imu
+
+# --- Madgwick + numpy for orientation estimation ---
+try:
+    import numpy as np
+    from ahrs.filters import Madgwick
+except ImportError as e:
+    print(
+        "ERROR: Required Python packages 'numpy' and 'ahrs' are not installed.\n"
+        "Install them inside the container with:\n"
+        "  pip3 install numpy ahrs\n",
+        file=sys.stderr,
+        flush=True,
+    )
+    raise
+
+PORT = "/dev/rfcomm0"
+BAUDRATE = 230400
+PRINT_HZ = 10.0
+PRINT_PERIOD = 1.0 / PRINT_HZ
+
+FIELDS = [
+    "ax_g", "ay_g", "az_g",
+    "gx_dps", "gy_dps", "gz_dps",
+    "mx_uT", "my_uT", "mz_uT",
+    "p_hpa", "t_C", "alt_m",
+]
+
+G_TO_MS2   = 9.80665
+DEG_TO_RAD = math.pi / 180.0
+
+
+def connect_serial():
+    while True:
+        try:
+            ser = serial.Serial(PORT, BAUDRATE, timeout=0)
+            print(f"✅ Connected to {PORT}", flush=True)
+            return ser
+        except Exception as e:
+            print(f"⚠️  Retrying connection: {e}", flush=True)
+            time.sleep(1)
+
+
+def parse_csv12(line: str):
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) != 12:
+        # Line with wrong number of fields → skip
+        return None
+    try:
+        vals = list(map(float, parts))
+        return dict(zip(FIELDS, vals))
+    except ValueError:
+        # Parsing error → skip
+        return None
+
+
+def clear_screen():
+    # faster than os.system("clear") and works fine in terminals
+    print("\x1b[2J\x1b[H", end="", flush=True)
+
+
+def build_imu_msg(node, s: dict, q=None) -> Imu:
+    """Build a sensor_msgs/Imu from the last sample and optional quaternion q."""
+    now = node.get_clock().now().to_msg()
+    msg = Imu()
+    msg.header.stamp = now
+    msg.header.frame_id = "imu_link"
+
+    # Linear acceleration: g -> m/s^2
+    msg.linear_acceleration.x = s["ax_g"] * G_TO_MS2
+    msg.linear_acceleration.y = s["ay_g"] * G_TO_MS2
+    msg.linear_acceleration.z = s["az_g"] * G_TO_MS2
+
+    # Angular velocity: deg/s -> rad/s
+    msg.angular_velocity.x = s["gx_dps"] * DEG_TO_RAD
+    msg.angular_velocity.y = s["gy_dps"] * DEG_TO_RAD
+    msg.angular_velocity.z = s["gz_dps"] * DEG_TO_RAD
+
+    # Orientation:
+    # - if a valid quaternion q is provided, use it
+    # - otherwise, identity (no rotation)
+    if q is not None:
+        try:
+            msg.orientation.w = float(q[0])
+            msg.orientation.x = float(q[1])
+            msg.orientation.y = float(q[2])
+            msg.orientation.z = float(q[3])
+        except Exception:
+            msg.orientation.w = 1.0
+            msg.orientation.x = 0.0
+            msg.orientation.y = 0.0
+            msg.orientation.z = 0.0
+    else:
+        msg.orientation.w = 1.0
+        msg.orientation.x = 0.0
+        msg.orientation.y = 0.0
+        msg.orientation.z = 0.0
+
+    return msg
+
+
+def main(args=None):
+    # -------- ROS2 init --------
+    rclpy.init(args=args)
+    node = rclpy.create_node("simple_imu_publisher")
+    imu_pub = node.create_publisher(Imu, "/imu/data", 10)
+
+    # Force line-buffered stdout so prints appear immediately
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+    print("✅ ROS2 node 'simple_imu_publisher' starting with Madgwick filter...", flush=True)
+
+    # -------- Madgwick filter state --------
+    # Initial quaternion (no rotation)
+    q = np.array([1.0, 0.0, 0.0, 0.0], dtype=float)
+    # Initial guess of frequency; it will be updated dynamically from dt
+    madgwick = Madgwick(beta=0.2, frequency=100.0)
+    last_update_t = time.monotonic()
+
+    def update_orientation(sample: dict):
+        """Update global quaternion q using Madgwick with the latest sample."""
+        nonlocal q, last_update_t, madgwick
+
+        # Extract raw data from sample
+        ax = float(sample["ax_g"])
+        ay = float(sample["ay_g"])
+        az = float(sample["az_g"])
+
+        gx_dps = float(sample["gx_dps"])
+        gy_dps = float(sample["gy_dps"])
+        gz_dps = float(sample["gz_dps"])
+
+        mx = float(sample["mx_uT"])
+        my = float(sample["my_uT"])
+        mz = float(sample["mz_uT"])
+
+        # Build numpy vectors
+        acc = np.array([ax, ay, az], dtype=float)
+        gyr = np.array([gx_dps, gy_dps, gz_dps], dtype=float) * DEG_TO_RAD
+        mag = np.array([mx, my, mz], dtype=float)
+
+        now_t = time.monotonic()
+        dt = now_t - last_update_t
+        last_update_t = now_t
+
+        # Avoid division by zero, clamp dt a bit if needed
+        if dt <= 0.0:
+            dt = 1e-3
+
+        # Update filter frequency based on actual sampling interval
+        madgwick.frequency = 1.0 / dt
+
+        # Update quaternion using MARG (Magnetometer + Accel + Gyro)
+        try:
+            new_q = madgwick.updateMARG(q, gyr=gyr, acc=acc, mag=mag)
+            if new_q is not None:
+                q = np.array(new_q, dtype=float)
+        except Exception as e:
+            # If anything goes wrong, keep previous q and log once in a while if needed
+            print(f"[WARN] Madgwick update error: {e}", flush=True)
+
+    # -------- Serial --------
+    ser = connect_serial()
+    rx_buf = ""
+    last_sample = None
+    last_print_t = time.monotonic()
+
+    clear_screen()
+    print("✅ Connected. Ctrl+C to stop.\n", flush=True)
+    print("✅ Publishing Imu on /imu/data (with orientation from Madgwick)\n", flush=True)
+
+    try:
+        while rclpy.ok():
+            # Process ROS callbacks
+            rclpy.spin_once(node, timeout_sec=0.0)
+
+            n = ser.in_waiting
+            if n:
+                chunk = ser.read(n).decode("utf-8", errors="ignore")
+                rx_buf += chunk
+
+                # Process all complete lines
+                while "\n" in rx_buf:
+                    line, rx_buf = rx_buf.split("\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    sample = parse_csv12(line)
+                    if sample is not None:
+                        # Update latest valid sample
+                        last_sample = sample
+                        # Update orientation filter with this sample
+                        update_orientation(sample)
+
+            now = time.monotonic()
+            if last_sample is not None and (now - last_print_t) >= PRINT_PERIOD:
+                last_print_t = now
+                s = last_sample
+
+                clear_screen()
+                print("✅ ESP32 IMU (última muestra)  |  Ctrl+C para salir\n", flush=True)
+                print(
+                    f"ACC [g]   ax={s['ax_g']:+8.3f}  ay={s['ay_g']:+8.3f}  az={s['az_g']:+8.3f}",
+                    flush=True,
+                )
+                print(
+                    f"GYR [dps] gx={s['gx_dps']:+8.3f}  gy={s['gy_dps']:+8.3f}  gz={s['gz_dps']:+8.3f}",
+                    flush=True,
+                )
+                print(
+                    f"MAG [uT]  mx={s['mx_uT']:+9.3f}  my={s['my_uT']:+9.3f}  mz={s['mz_uT']:+9.3f}",
+                    flush=True,
+                )
+                print(
+                    f"P/T/Alt   P={s['p_hpa']:9.2f} hPa   T={s['t_C']:6.2f} °C   Alt={s['alt_m']:8.2f} m\n",
+                    flush=True,
+                )
+                print(f"Print rate: {PRINT_HZ:.1f} Hz", flush=True)
+
+                # Publish in ROS with current quaternion q
+                imu_msg = build_imu_msg(node, s, q=q)
+                imu_pub.publish(imu_msg)
+
+            if n == 0:
+                time.sleep(0.002)
+
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped.", flush=True)
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == "__main__":
     main()
