@@ -179,6 +179,14 @@ class BluetoothIMUPublisher(Node):
             now_ns = self.get_clock().now().nanoseconds
             if now_ns - self.last_print_ns > self.print_period_ns:
                 self.last_print_ns = now_ns
+
+                # PRINT extra: quaternion fused (para ver que sigue cambiando)
+                print(
+                    f"[FUSED] q=({self.q[0]:+6.3f}, {self.q[1]:+6.3f}, "
+                    f"{self.q[2]:+6.3f}, {self.q[3]:+6.3f})",
+                    flush=True,
+                )
+
                 self.get_logger().info(
                     f"Roll={roll_deg:6.2f}°, Pitch={pitch_deg:6.2f}°, Yaw={yaw_deg:6.2f}° | "  # noqa: E501
                     f"[RAW] ax_g={ax_g:+7.3f}, ay_g={ay_g:+7.3f}, az_g={az_g:+7.3f} g | "      # noqa: E501
