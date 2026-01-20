@@ -32,7 +32,7 @@ class ImuWsServer(Node):
 
         # Declare configurable parameters with default values
         self.declare_parameter('imu_topic', '/imu/data')
-        self.declare_parameter('ws_host', '0.0.0.0')
+        self.declare_parameter('ws_host', '100.70.28.30')
         self.declare_parameter('ws_port', 8765)
 
         imu_topic = self.get_parameter('imu_topic').get_parameter_value().string_value
