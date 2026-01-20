@@ -22,10 +22,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # THIS is the executable name: imu_bt_publisher
-            # ros2 run imu_bt_publisher imu_bt_publisher
-            'imu_bt_publisher = imu_bt_publisher.imu_bt_publisher:main',
+            # This defines the executable name: imu_publisher
+            # Run with: ros2 run imu_bt_publisher imu_publisher
+            'imu_publisher = imu_bt_publisher.imu_bt_publisher:main',
         ],
     },
 )
-
