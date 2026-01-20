@@ -65,12 +65,12 @@ RUN curl -fsSL https://tailscale.com/install.sh | sh
 # ===============================================================
 # 🔹 Clonar y almacenar el proyecto
 # ===============================================================
-WORKDIR /opt
-RUN git clone https://github.com/kosmicplane/SenDiMoniProg-IMU.git repo
-
-# Copia a /home en la imagen (evita depender de volúmenes)
+# Clone project repository at build time
+RUN git clone --depth 1 https://github.com/kosmicplane/SenDiMoniProg-IMU.git /opt/repo
+#RUN git pull
+# Copy repo to /home inside image (avoid overwriting with host volume)
 RUN mkdir -p /home/SenDiMoniProg-IMU && \
-    cp -r /opt/repo/* /home/SenDiMoniProg-IMU/ && \
+    cp -a /opt/repo/. /home/SenDiMoniProg-IMU/ && \
     rm -rf /opt/repo
 
 # ===============================================================
