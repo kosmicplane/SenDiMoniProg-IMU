@@ -60,14 +60,17 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
     ros-kilted-web-video-server\
-    software-properties-common\
-    librealsense2-dkms \
-    librealsense2-utils \
-    librealsense2-dev \
-    librealsense2-dbg\
     python3-realsense2\
     python3-opencv\
     && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+    librealsense2-utils \
+    librealsense2-dev \
+    python3-realsense2 \
+    ros-humble-realsense2-camera \
+    ros-humble-realsense2-description \
+ && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
 # Python dependencies
@@ -84,7 +87,6 @@ ENV GAZEBO_MASTER_URI=http://192.168.55.1:11345
 ENV GAZEBO_RESOURCE_PATH=/usr/share/gz
 ENV GZ_SIM_RESOURCE_PATH=/usr/share/gz
 ENV ROS_LOCALHOST_ONLY=0
-
 # -------------------------------
 # Entrypoint setup
 # -------------------------------
