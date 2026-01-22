@@ -60,7 +60,6 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
     ros-kilted-web-video-server\
-    python3-opencv\
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y \
