@@ -62,12 +62,10 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-web-video-server\
     && rm -rf /var/lib/apt/lists/*
 
+# RealSense SDK + ROS2 wrapper desde los repos de ROS (Kilted + Ubuntu 24.04)
 RUN apt-get update && apt-get install -y \
-    librealsense2-utils \
-    librealsense2-dev \
-    python3-realsense2 \
-    ros-humble-realsense2-camera \
-    ros-humble-realsense2-description \
+    ros-kilted-librealsense2\* \
+    ros-kilted-realsense2-\* \
  && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------
