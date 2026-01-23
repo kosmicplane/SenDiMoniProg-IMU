@@ -122,7 +122,7 @@ class RealSenseRosBridge(Node):
         p99 = np.percentile(valid_values, 99) # 1% más lejos
 
         near_mm = max(50.0, p1)      # no menos de 5 cm
-        far_mm  = min(2000.0, p99)   # no más de 2 m
+        far_mm  = min(1000, p99)   # no más de 2 m
 
 
         # Clamp depth to the chosen range
