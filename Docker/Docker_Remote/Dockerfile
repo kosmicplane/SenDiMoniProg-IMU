@@ -71,7 +71,7 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Python dependencies
 # -------------------------------
-RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl websockets flask opencv matplotlib
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl websockets flask opencv2 matplotlib
 RUN curl -fsSL https://tailscale.com/install.sh | sh
 # -------------------------------
 # ROS environment variables
