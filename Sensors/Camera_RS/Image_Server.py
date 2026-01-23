@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Simple RealSense webserver for:
-  - Color stream  (MJPEG)  at /color
-  - Depth stream  (MJPEG)  at /depth
-  - 3D pointcloud snapshot (JPEG) at /pointcloud
+RealSense ROS2 webserver (without pyrealsense2).
 
-Designed to run on the Jetson (inside Docker), and be viewed
-remotely from a PC via Tailscale using a web browser.
+- Reads color and depth images from ROS2 topics:
+    /d405/color/image_raw
+    /d405/depth/image_rect_raw
 
-Example URLs from the PC:
-  http://<JETSON_TAILSCALE_IP>:8000/color
-  http://<JETSON_TAILSCALE_IP>:8000/depth
-  http://<JETSON_TAILSCALE_IP>:8000/pointcloud
+- Optionally reads pointcloud from:
+/d405/depth/color/points  (PointCloud2)
+
+- Serves:
+    /color      -> MJPEG stream of color image
+    /depth      -> MJPEG stream of depth image (gray)
+    /pointcloud -> 3D scatter snapshot (JPEG) built from PointCloud2
 """
 
 import threading
@@ -22,138 +23,208 @@ import numpy as np
 import cv2
 from flask import Flask, Response
 
-# If pyrealsense2 is missing, this will raise ImportError
-import pyrealsense2 as rs
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, PointCloud2
+from cv_bridge import CvBridge
 
 from matplotlib.figure import Figure
+
 
 # ---------------- Flask app ----------------
 
 app = Flask(__name__)
 
-# ---------------- RealSense global state ----------------
 
-pipeline = None
-align = None
-colorizer = None
-pc = None
+# ---------------- ROS2 Node ----------------
 
-last_color = None          # np.ndarray (H, W, 3), BGR
-last_depth_color = None    # np.ndarray (H, W, 3), BGR pseudo-color
-last_pc_points = None      # np.ndarray (N, 3), XYZ in meters
-
-lock = threading.Lock()
-running = True
-
-
-def init_realsense():
+class RealSenseRosBridge(Node):
     """
-    Initialize the RealSense pipeline, enable color + depth,
-    alignment and pointcloud.
+    ROS2 node that subscribes to RealSense topics and stores the latest frames
+    to be served via Flask.
     """
-    global pipeline, align, colorizer, pc
 
-    pipeline = rs.pipeline()
-    config = rs.config()
+    def __init__(self):
+        super().__init__('realsense_ros_web_bridge')
 
-    # Adjust resolution and fps depending on Jetson performance
-    # D405 works well at 640x480, 15 FPS for many applications.
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
+        self.bridge = CvBridge()
 
-    pipeline.start(config)
+        # Latest data
+        self.last_color = None         # np.ndarray BGR
+        self.last_depth_gray = None    # np.ndarray GRAY
+        self.last_pc_points = None     # np.ndarray Nx3
 
-    # Align depth to color so both share the same frame of reference
-    align_to = rs.stream.color
-    align = rs.align(align_to)
+        self.lock = threading.Lock()
 
-    # Colorizer for depth visualization
-    colorizer = rs.colorizer()
+        # Parameters (could be made configurable)
+        color_topic = '/d405/color/image_raw'
+        depth_topic = '/d405/depth/image_rect_raw'
+        pc_topic    = '/d405/depth/color/points'
 
-    # Pointcloud helper
-    pc = rs.pointcloud()
+        # Subscribers
+        self.create_subscription(
+            Image, color_topic, self.color_callback, 10
+        )
+        self.create_subscription(
+            Image, depth_topic, self.depth_callback, 10
+        )
+        self.create_subscription(
+            PointCloud2, pc_topic, self.pointcloud_callback, 10
+        )
 
+        self.get_logger().info(
+            f"RealSenseRosBridge subscribed to:\n"
+            f"  Color : {color_topic}\n"
+            f"  Depth : {depth_topic}\n"
+            f"  PC    : {pc_topic}"
+        )
 
-def capture_loop():
-    """
-    Background thread: continuously grab frames from RealSense and
-    update global buffers for color, depth and pointcloud.
-    """
-    global last_color, last_depth_color, last_pc_points, running
-    global pipeline, align, colorizer, pc
+    # ---------- Callbacks ----------
 
-    while running:
+    def color_callback(self, msg: Image):
+        """Store latest color image (BGR)."""
         try:
-            frames = pipeline.wait_for_frames()
-        except Exception:
-            # If something goes wrong temporarily, sleep a bit and retry
-            time.sleep(0.01)
-            continue
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().warn(f"Error converting color image: {e}")
+            return
 
-        # Align depth to color
-        aligned_frames = align.process(frames)
+        with self.lock:
+            self.last_color = cv_img
 
-        depth_frame = aligned_frames.get_depth_frame()
-        color_frame = aligned_frames.get_color_frame()
-        if not depth_frame or not color_frame:
-            time.sleep(0.001)
-            continue
+    def depth_callback(self, msg: Image):
+        """Store latest depth image (uint16), convert to normalized gray for display."""
+        try:
+            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            # depth can be uint16 (in mm or similar); normalize to 0-255 for display
+            depth_float = depth.astype(np.float32)
+            # avoid division by zero: use max>0
+            max_val = np.max(depth_float)
+            if max_val > 0:
+                depth_norm = (depth_float / max_val) * 255.0
+            else:
+                depth_norm = depth_float
+            depth_gray = depth_norm.astype(np.uint8)
+        except Exception as e:
+            self.get_logger().warn(f"Error converting depth image: {e}")
+            return
 
-        # Convert color frame to numpy BGR image
-        color_image = np.asanyarray(color_frame.get_data())
+        with self.lock:
+            self.last_depth_gray = depth_gray
 
-        # Colorize depth (pseudo-color, RGB)
-        depth_color_frame = colorizer.colorize(depth_frame)
-        depth_color_image = np.asanyarray(depth_color_frame.get_data())
+    def pointcloud_callback(self, msg: PointCloud2):
+        """
+        Convert ROS2 PointCloud2 to Nx3 array (XYZ in meters).
+        We will downsample for a lightweight 3D view.
+        """
+        try:
+            pts = pointcloud2_to_xyz_array(msg)
+        except Exception as e:
+            self.get_logger().warn(f"Error parsing PointCloud2: {e}")
+            return
 
-        # Compute pointcloud
-        pc.map_to(color_frame)
-        points = pc.calculate(depth_frame)
+        if pts is None or pts.size == 0:
+            return
 
-        # Convert vertices to Nx3 float32 array
-        v = np.asanyarray(points.get_vertices())  # Nx1 array of rs.vertex
-        pts = np.vstack([[p.x, p.y, p.z] for p in v]).reshape(-1, 3)
-
-        # Subsample to keep the 3D view lightweight
+        # Subsample
         if pts.shape[0] > 0:
-            pts = pts[::50, :]  # keep 1 of every 50 points
+            pts = pts[::50, :]  # keep 1/50 points
 
-        with lock:
-            last_color = color_image
-            last_depth_color = depth_color_image
-            last_pc_points = pts
-
-        # Tiny delay to avoid pegging CPU in case wait_for_frames returns very fast
-        time.sleep(0.001)
+        with self.lock:
+            self.last_pc_points = pts
 
 
-def mjpeg_generator(get_image_fn, fps=15):
+# ---------------- PointCloud2 helper ----------------
+
+def pointcloud2_to_xyz_array(cloud: PointCloud2):
     """
-    Generic MJPEG generator. `get_image_fn` must return a BGR uint8 image
-    (H, W, 3) or None if no frame is available yet.
+    Convert a sensor_msgs/PointCloud2 into an Nx3 numpy array (XYZ).
+    Assumes fields named 'x', 'y', 'z'.
     """
+    if cloud.height == 0 or cloud.width == 0:
+        return None
+
+    # Based on sensor_msgs.point_cloud2.read_points, but inline to avoid extra deps
+    dtype_list = []
+    for field in cloud.fields:
+        if field.name in ['x', 'y', 'z']:
+            # Only handle float32 x,y,z
+            assert field.datatype == 7  # FLOAT32
+            dtype_list.append((field.name, np.float32))
+
+    if not dtype_list:
+        return None
+
+    # Full dtype for all fields in the message
+    # Each point is a row
+    dtype_full = np.dtype(dtype_list)
+
+    # Interpret raw buffer as array of points
+    data = np.frombuffer(cloud.data, dtype=dtype_full)
+    xyz = np.vstack([data['x'], data['y'], data['z']]).T
+    return xyz
+
+
+# ---------------- Global node + helper accessors ----------------
+
+ros_node: RealSenseRosBridge = None  # global reference used by Flask
+
+
+def get_latest_color():
+    global ros_node
+    if ros_node is None:
+        return None
+    with ros_node.lock:
+        if ros_node.last_color is None:
+            return None
+        return ros_node.last_color.copy()
+
+
+def get_latest_depth_gray():
+    global ros_node
+    if ros_node is None:
+        return None
+    with ros_node.lock:
+        if ros_node.last_depth_gray is None:
+            return None
+        # Convert gray to BGR for consistent MJPEG (3-channel)
+        gray = ros_node.last_depth_gray
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+
+def get_latest_pc_points():
+    global ros_node
+    if ros_node is None:
+        return None
+    with ros_node.lock:
+        if ros_node.last_pc_points is None:
+            return None
+        return ros_node.last_pc_points.copy()
+
+
+# ---------------- MJPEG generator ----------------
+
+def mjpeg_generator(get_image_fn, fps=10):
+    """Generic MJPEG generator from an image getter."""
     interval = 1.0 / max(fps, 1.0)
 
     while True:
         start = time.time()
         frame = get_image_fn()
         if frame is None:
-            time.sleep(0.01)
+            time.sleep(0.05)
             continue
 
-        # Encode to JPEG
-        ok, buffer = cv2.imencode(".jpg", frame)
+        ok, buffer = cv2.imencode('.jpg', frame)
         if not ok:
             continue
-        frame_bytes = buffer.tobytes()
 
-        # MJPEG chunk
+        frame_bytes = buffer.tobytes()
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
         )
 
-        # Simple FPS limiting
         elapsed = time.time() - start
         if elapsed < interval:
             time.sleep(interval - elapsed)
@@ -163,12 +234,11 @@ def mjpeg_generator(get_image_fn, fps=15):
 
 @app.route("/")
 def index():
-    """Simple index page with links to available streams."""
     return (
-        "<h1>RealSense Webserver</h1>"
+        "<h1>RealSense ROS2 Webserver</h1>"
         "<ul>"
         "<li><a href='/color'>Color stream</a> (MJPEG)</li>"
-        "<li><a href='/depth'>Depth stream (colorized)</a> (MJPEG)</li>"
+        "<li><a href='/depth'>Depth stream (MJPEG)</a></li>"
         "<li><a href='/pointcloud'>3D pointcloud snapshot</a> (JPEG)</li>"
         "</ul>"
     )
@@ -176,54 +246,30 @@ def index():
 
 @app.route("/color")
 def color_stream():
-    """Color MJPEG stream endpoint."""
-    def get_color():
-        with lock:
-            if last_color is None:
-                return None
-            # Copy to avoid issues if the capture thread overwrites it
-            return last_color.copy()
-
     return Response(
-        mjpeg_generator(get_color, fps=15),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
+        mjpeg_generator(get_latest_color, fps=10),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
 
 @app.route("/depth")
 def depth_stream():
-    """Depth (colorized) MJPEG stream endpoint."""
-    def get_depth():
-        with lock:
-            if last_depth_color is None:
-                return None
-            return last_depth_color.copy()
-
     return Response(
-        mjpeg_generator(get_depth, fps=15),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
+        mjpeg_generator(get_latest_depth_gray, fps=10),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
 
 
 @app.route("/pointcloud")
 def pointcloud_view():
-    """
-    Generate a static 3D view of the current pointcloud using matplotlib
-    and return it as a JPEG image.
-
-    Note: this is NOT interactive WebGL, but a simple 3D snapshot
-    that updates every time you reload the page.
-    """
-    with lock:
-        pts = None if last_pc_points is None else last_pc_points.copy()
-
-    # If we don't have points yet, return a black image
+    pts = get_latest_pc_points()
     if pts is None or pts.size == 0:
+        # blank image
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         ok, buf = cv2.imencode(".jpg", img)
         return Response(buf.tobytes(), mimetype="image/jpeg")
 
-    # Create a small figure for 3D scatter
+    # Create a small 3D scatter figure
     fig = Figure(figsize=(4, 4))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -231,47 +277,42 @@ def pointcloud_view():
     ys = pts[:, 1]
     zs = pts[:, 2]
 
-    # Small point size to keep it readable
     ax.scatter(xs, ys, zs, s=1)
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
     ax.set_zlabel("Z [m]")
     ax.view_init(elev=30, azim=45)
-
-    # Tight layout and render to memory
-    buf = io.BytesIO()
     fig.tight_layout()
+
+    buf = io.BytesIO()
     fig.savefig(buf, format="jpg")
     buf.seek(0)
     return Response(buf.read(), mimetype="image/jpeg")
 
 
-# ---------------- Main entrypoint ----------------
+# ---------------- Main: start ROS2 + Flask ----------------
+
+def ros_spin_thread():
+    """
+    Thread to spin the ROS2 node while Flask runs in the main thread.
+    """
+    global ros_node
+    rclpy.init(args=None)
+    ros_node = RealSenseRosBridge()
+    try:
+        rclpy.spin(ros_node)
+    finally:
+        ros_node.destroy_node()
+        rclpy.shutdown()
+
 
 def main():
-    global running
+    # Start ROS2 spin in a background thread
+    t = threading.Thread(target=ros_spin_thread, daemon=True)
+    t.start()
 
-    # Initialize RealSense pipeline
-    init_realsense()
-
-    # Start capture thread
-    capture_thread = threading.Thread(target=capture_loop, daemon=True)
-    capture_thread.start()
-
-    try:
-        # Run Flask in threaded mode so multiple clients can connect
-        # Use host="0.0.0.0" so it is visible from outside the container
-        app.run(host="0.0.0.0", port=8000, threaded=True)
-    finally:
-        # Graceful shutdown
-        running = False
-        capture_thread.join(timeout=1.0)
-
-        if pipeline is not None:
-            try:
-                pipeline.stop()
-            except Exception:
-                pass
+    # Start Flask server
+    app.run(host="0.0.0.0", port=8000, threaded=True)
 
 
 if __name__ == "__main__":
