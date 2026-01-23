@@ -59,7 +59,7 @@ class RealSenseRosBridge(Node):
         # Parameters (could be made configurable)
         color_topic = '/camera/d405/color/image_rect_raw'
         depth_topic = '/camera/d405/depth/image_rect_raw'
-        pc_topic    = '/camera/d405/depth/color/points'
+        pc_topic    = '/d405/depth/color/points'
 
         # Subscribers
         self.create_subscription(
@@ -93,24 +93,47 @@ class RealSenseRosBridge(Node):
             self.last_color = cv_img
 
     def depth_callback(self, msg: Image):
-        """Store latest depth image (uint16), convert to normalized gray for display."""
+        """Store latest depth image (uint16), convert to normalized gray for display.
+
+        For RealSense D405 we clip to a short range (e.g. 7cm–50cm) so the visualization
+        is not washed out by outliers.
+        """
         try:
+            # Get raw depth (usually uint16 Z16 from realsense2_camera)
             depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-            # depth can be uint16 (in mm or similar); normalize to 0-255 for display
-            depth_float = depth.astype(np.float32)
-            # avoid division by zero: use max>0
-            max_val = np.max(depth_float)
-            if max_val > 0:
-                depth_norm = (depth_float / max_val) * 255.0
-            else:
-                depth_norm = depth_float
-            depth_gray = depth_norm.astype(np.uint8)
+            depth_mm = depth.astype(np.float32)
         except Exception as e:
             self.get_logger().warn(f"Error converting depth image: {e}")
             return
 
+        # Mask invalid pixels (0 = no depth)
+        valid = depth_mm > 0
+        if not np.any(valid):
+            return
+
+        # ---- CLIP TO D405 USEFUL RANGE ----
+        # D405 ideal range is ~7cm to 50cm -> 70mm to 500mm
+        near_mm = 70.0
+        far_mm  = 500.0
+
+        depth_clipped = np.clip(depth_mm, near_mm, far_mm)
+
+        # Normalize to 0–255 within [near_mm, far_mm]
+        depth_norm = (depth_clipped - near_mm) / (far_mm - near_mm)
+        depth_norm = np.clip(depth_norm, 0.0, 1.0)
+        depth_gray = (depth_norm * 255.0).astype(np.uint8)
+
+        # Optional: apply a little blur to make it look smoother
+        depth_gray = cv2.medianBlur(depth_gray, 3)
+
         with self.lock:
             self.last_depth_gray = depth_gray
+
+        # Debug log cada cierto tiempo si quieres
+        # self.get_logger().info(
+        #     f"Depth frame: min={depth_mm[valid].min():.1f} mm, "
+        #     f"max={depth_mm[valid].max():.1f} mm"
+        # )
 
     def pointcloud_callback(self, msg: PointCloud2):
         """
@@ -269,18 +292,38 @@ def pointcloud_view():
         ok, buf = cv2.imencode(".jpg", img)
         return Response(buf.tobytes(), mimetype="image/jpeg")
 
-    # Create a small 3D scatter figure
-    fig = Figure(figsize=(4, 4))
-    ax = fig.add_subplot(111, projection="3d")
+    # Remove NaNs / inf
+    mask = np.isfinite(pts).all(axis=1)
+    pts = pts[mask]
+    if pts.size == 0:
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        ok, buf = cv2.imencode(".jpg", img)
+        return Response(buf.tobytes(), mimetype="image/jpeg")
+
+    # Optionally downsample (keep every Nth point)
+    if pts.shape[0] > 20000:
+        pts = pts[::20, :]
 
     xs = pts[:, 0]
     ys = pts[:, 1]
     zs = pts[:, 2]
 
+    # Create a small 3D scatter figure
+    fig = Figure(figsize=(4, 4))
+    ax = fig.add_subplot(111, projection="3d")
+
     ax.scatter(xs, ys, zs, s=1)
+
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
     ax.set_zlabel("Z [m]")
+
+    # ---- LIMIT VIEW TO D405 WORKSPACE ----
+    # D405 is 0.07–0.5 m in front of the camera
+    ax.set_xlim(-0.2, 0.2)
+    ax.set_ylim(-0.2, 0.2)
+    ax.set_zlim(0.0, 0.5)
+
     ax.view_init(elev=30, azim=45)
     fig.tight_layout()
 
