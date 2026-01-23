@@ -117,8 +117,8 @@ class RealSenseRosBridge(Node):
 
         # ---- Range for D405: ultra-short distance ----
         # Ajusta esto si ves que tu escena es algo más lejos/cerca.
-        near_mm = 70.0   # 7 cm
-        far_mm  = 500.0  # 50 cm
+        near_mm = 50  # 7 cm
+        far_mm  = 1000  # 50 cm
 
         # Clamp depth to the chosen range
         depth_clipped = np.clip(depth_mm, near_mm, far_mm)
