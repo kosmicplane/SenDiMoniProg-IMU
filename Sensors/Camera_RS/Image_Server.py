@@ -58,7 +58,7 @@ class RealSenseRosBridge(Node):
 
         # Parameters (could be made configurable)
         color_topic = '/camera/d405/color/image_rect_raw'
-        depth_topic = '/camera/d405/depth/image_rect_raw'
+        depth_topic = '/camera/d405/color/image_rect_raw/compressedDepth'
         pc_topic    = '/d405/depth/color/points'
 
         # Subscribers
