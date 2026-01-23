@@ -57,9 +57,9 @@ class RealSenseRosBridge(Node):
         self.lock = threading.Lock()
 
         # Parameters (could be made configurable)
-        color_topic = '/d405/color/image_raw'
-        depth_topic = '/d405/depth/image_rect_raw'
-        pc_topic    = '/d405/depth/color/points'
+        color_topic = '/camera/d405/color/image_rect_raw'
+        depth_topic = '/camera/d405/depth/image_rect_raw'
+        pc_topic    = '/camera/d405/depth/color/points'
 
         # Subscribers
         self.create_subscription(
