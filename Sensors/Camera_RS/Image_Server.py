@@ -214,9 +214,9 @@ def get_latest_depth_gray():
     with ros_node.lock:
         if ros_node.last_depth_gray is None:
             return None
-        # Convert gray to BGR for consistent MJPEG (3-channel)
-        gray = ros_node.last_depth_gray
-        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        # Already BGR colorized
+        return ros_node.last_depth_gray.copy()
+
 
 
 def get_latest_pc_points():
