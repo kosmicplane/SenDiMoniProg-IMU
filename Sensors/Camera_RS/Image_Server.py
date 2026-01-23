@@ -26,6 +26,8 @@ from flask import Flask, Response
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs_py import point_cloud2 as pc2
+
 from cv_bridge import CvBridge
 
 from matplotlib.figure import Figure
@@ -141,24 +143,43 @@ class RealSenseRosBridge(Node):
 
     def pointcloud_callback(self, msg: PointCloud2):
         """
-        Convert ROS2 PointCloud2 to Nx3 array (XYZ in meters).
-        We will downsample for a lightweight 3D view.
+        Convert ROS2 PointCloud2 to Nx3 array (XYZ in meters) using official helper.
         """
         try:
-            pts = pointcloud2_to_xyz_array(msg)
+            pts_list = []
+            for p in pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True):
+                pts_list.append([p[0], p[1], p[2]])
+            pts = np.array(pts_list, dtype=np.float32)
         except Exception as e:
             self.get_logger().warn(f"Error parsing PointCloud2: {e}")
             return
 
-        if pts is None or pts.size == 0:
+        if pts.size == 0:
             return
 
-        # Subsample
-        if pts.shape[0] > 0:
-            pts = pts[::50, :]  # keep 1/50 points
+        # Optional: restrict to a tight volume in front of the camera
+        # D405: short range in front of the sensor
+        x_min, x_max = -0.2, 0.2
+        y_min, y_max = -0.2, 0.2
+        z_min, z_max = 0.0, 0.5
+
+        mask = (
+            (pts[:, 0] >= x_min) & (pts[:, 0] <= x_max) &
+            (pts[:, 1] >= y_min) & (pts[:, 1] <= y_max) &
+            (pts[:, 2] >= z_min) & (pts[:, 2] <= z_max)
+        )
+
+        pts = pts[mask]
+        if pts.size == 0:
+            return
+
+        # Subsample for speed
+        if pts.shape[0] > 50000:
+            pts = pts[::10, :]
 
         with self.lock:
             self.last_pc_points = pts
+
 
 
 # ---------------- PointCloud2 helper ----------------
@@ -291,28 +312,14 @@ def depth_stream():
 def pointcloud_view():
     pts = get_latest_pc_points()
     if pts is None or pts.size == 0:
-        # blank image
         img = np.zeros((480, 640, 3), dtype=np.uint8)
         ok, buf = cv2.imencode(".jpg", img)
         return Response(buf.tobytes(), mimetype="image/jpeg")
-
-    # Remove NaNs / inf
-    mask = np.isfinite(pts).all(axis=1)
-    pts = pts[mask]
-    if pts.size == 0:
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        ok, buf = cv2.imencode(".jpg", img)
-        return Response(buf.tobytes(), mimetype="image/jpeg")
-
-    # Optionally downsample (keep every Nth point)
-    if pts.shape[0] > 20000:
-        pts = pts[::20, :]
 
     xs = pts[:, 0]
     ys = pts[:, 1]
     zs = pts[:, 2]
 
-    # Create a small 3D scatter figure
     fig = Figure(figsize=(4, 4))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -322,8 +329,7 @@ def pointcloud_view():
     ax.set_ylabel("Y [m]")
     ax.set_zlabel("Z [m]")
 
-    # ---- LIMIT VIEW TO D405 WORKSPACE ----
-    # D405 is 0.07–0.5 m in front of the camera
+    # Same limits as en el filtro para que tenga sentido
     ax.set_xlim(-0.2, 0.2)
     ax.set_ylim(-0.2, 0.2)
     ax.set_zlim(0.0, 0.5)
@@ -335,7 +341,6 @@ def pointcloud_view():
     fig.savefig(buf, format="jpg")
     buf.seek(0)
     return Response(buf.read(), mimetype="image/jpeg")
-
 
 # ---------------- Main: start ROS2 + Flask ----------------
 
