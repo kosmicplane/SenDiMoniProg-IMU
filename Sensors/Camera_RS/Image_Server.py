@@ -93,15 +93,51 @@ class RealSenseRosBridge(Node):
             self.last_color = cv_img
 
     def depth_callback(self, msg: Image):
-        """Store latest depth image that already arrived colorized (RGB8)."""
+        """
+        Depth raw (16UC1) -> colorized BGR image for visualization.
+
+        - Reads depth in millimeters from RealSense (16UC1).
+        - Clamps to [near_mm, far_mm] to enhance contrast.
+        - Applies a colormap so it looks similar to RealSense / RViz colorizer.
+        """
         try:
-            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            # This keeps the original type: uint16, 1 channel
+            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            depth_mm = depth.astype(np.float32)
         except Exception as e:
             self.get_logger().warn(f"Error converting depth image: {e}")
             return
 
+        # Mask invalid pixels (0 = no depth)
+        valid = depth_mm > 0
+        if not np.any(valid):
+            return
+
+        # ---- Range for D405: ultra-short distance ----
+        # Ajusta esto si ves que tu escena es algo más lejos/cerca.
+        near_mm = 70.0   # 7 cm
+        far_mm  = 500.0  # 50 cm
+
+        # Clamp depth to the chosen range
+        depth_clipped = np.clip(depth_mm, near_mm, far_mm)
+
+        # Normalize to 0..1
+        depth_norm = (depth_clipped - near_mm) / (far_mm - near_mm)
+        depth_norm = np.clip(depth_norm, 0.0, 1.0)
+
+        # To 8-bit 0..255
+        depth_8u = (depth_norm * 255.0).astype(np.uint8)
+
+        # Optional smoothing to reduce speckle noise
+        depth_8u = cv2.medianBlur(depth_8u, 3)
+
+        # Apply a colormap (Jet) to approximate RealSense colorizer
+        depth_color = cv2.applyColorMap(depth_8u, cv2.COLORMAP_JET)
+
         with self.lock:
-            self.last_depth_gray = cv_img  # ahora es BGR 'bonito'
+            # Now this is a nice BGR image for web
+            self.last_depth_gray = depth_color
+
 
     def pointcloud_callback(self, msg: PointCloud2):
         """
