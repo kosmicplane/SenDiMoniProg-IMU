@@ -164,9 +164,9 @@ class RealSenseRosBridge(Node):
 
         # Optional: restrict to a tight volume in front of the camera
         # D405: short range in front of the sensor
-        x_min, x_max = -0.2, 0.2
-        y_min, y_max = -0.2, 0.2
-        z_min, z_max = 0.0, 0.5
+        x_min, x_max = -0.5, 0.5   # 1 m de ancho
+        y_min, y_max = -0.5, 0.5
+        z_min, z_max = 0.0, 1.0    # 0 a 1 m delante de la cámara
 
         mask = (
             (pts[:, 0] >= x_min) & (pts[:, 0] <= x_max) &
@@ -335,9 +335,10 @@ def pointcloud_view():
     ax.set_zlabel("Z [m]")
 
     # Same limits as en el filtro para que tenga sentido
-    ax.set_xlim(-0.2, 0.2)
-    ax.set_ylim(-0.2, 0.2)
-    ax.set_zlim(0.0, 0.5)
+    ax.set_xlim(-0.5, 0.5)
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_zlim(0.0, 1.0)
+
 
     ax.view_init(elev=30, azim=45)
     fig.tight_layout()
