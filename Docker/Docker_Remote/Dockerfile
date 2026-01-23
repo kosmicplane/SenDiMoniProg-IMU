@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-geometry-msgs \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
+     python3-opencv\
     ros-kilted-web-video-server\
     && rm -rf /var/lib/apt/lists/*
 
@@ -71,7 +72,7 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------
 # Python dependencies
 # -------------------------------
-RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl websockets flask opencv2 matplotlib
+RUN pip3 install --break-system-packages numpy scipy matplotlib ahrs pandas openpyxl websockets flask matplotlib
 RUN curl -fsSL https://tailscale.com/install.sh | sh
 # -------------------------------
 # ROS environment variables
