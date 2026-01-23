@@ -93,47 +93,15 @@ class RealSenseRosBridge(Node):
             self.last_color = cv_img
 
     def depth_callback(self, msg: Image):
-        """Store latest depth image (uint16), convert to normalized gray for display.
-
-        For RealSense D405 we clip to a short range (e.g. 7cm–50cm) so the visualization
-        is not washed out by outliers.
-        """
+        """Store latest depth image that already arrived colorized (RGB8)."""
         try:
-            # Get raw depth (usually uint16 Z16 from realsense2_camera)
-            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-            depth_mm = depth.astype(np.float32)
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except Exception as e:
             self.get_logger().warn(f"Error converting depth image: {e}")
             return
 
-        # Mask invalid pixels (0 = no depth)
-        valid = depth_mm > 0
-        if not np.any(valid):
-            return
-
-        # ---- CLIP TO D405 USEFUL RANGE ----
-        # D405 ideal range is ~7cm to 50cm -> 70mm to 500mm
-        near_mm = 70.0
-        far_mm  = 500.0
-
-        depth_clipped = np.clip(depth_mm, near_mm, far_mm)
-
-        # Normalize to 0–255 within [near_mm, far_mm]
-        depth_norm = (depth_clipped - near_mm) / (far_mm - near_mm)
-        depth_norm = np.clip(depth_norm, 0.0, 1.0)
-        depth_gray = (depth_norm * 255.0).astype(np.uint8)
-
-        # Optional: apply a little blur to make it look smoother
-        depth_gray = cv2.medianBlur(depth_gray, 3)
-
         with self.lock:
-            self.last_depth_gray = depth_gray
-
-        # Debug log cada cierto tiempo si quieres
-        # self.get_logger().info(
-        #     f"Depth frame: min={depth_mm[valid].min():.1f} mm, "
-        #     f"max={depth_mm[valid].max():.1f} mm"
-        # )
+            self.last_depth_gray = cv_img  # ahora es BGR 'bonito'
 
     def pointcloud_callback(self, msg: PointCloud2):
         """
