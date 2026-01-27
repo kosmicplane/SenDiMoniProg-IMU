@@ -59,7 +59,8 @@ RUN apt-get update && apt-get install -y \
     ros-kilted-geometry-msgs \
     ros-kilted-ros-gz-bridge \
     ros-kilted-ros-gz-sim \
-     python3-opencv\
+    python3-opencv\
+    ros-kilted-depth-image-proc\
     ros-kilted-web-video-server\
     && rm -rf /var/lib/apt/lists/*
 

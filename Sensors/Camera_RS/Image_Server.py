@@ -2,6 +2,14 @@
 """
 RealSense ROS2 webserver (without pyrealsense2).
 
+#LAUNCH IT BEFORE -> ros2 launch realsense2_camera rs_launch.py camera_name:=d405   enable_color:=true   enable_depth:=true   pointcloud.enable:=true
+#DEEP CLOUD 
+ros2 run depth_image_proc point_cloud_xyzrgb_node \
+  --ros-args \
+  -r depth_registered/image_rect:=/camera/d405/depth/image_rect_raw \
+  -r rgb/image_rect_color:=/camera/d405/color/image_rect_raw \
+  -r rgb/camera_info:=/camera/d405/color/camera_info \
+  -r points:=/d405/depth/color/points
 - Reads color and depth images from ROS2 topics:
     /d405/color/image_raw
     /d405/depth/image_rect_raw
