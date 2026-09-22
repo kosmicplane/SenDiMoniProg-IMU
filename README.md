@@ -1,218 +1,233 @@
-# SenDiMoniProg-IMU // BADKITTEN REPOSITORY
-<img width="1024" height="1024" alt="image" src="https://github.com/user-attachments/assets/a24ba357-d96c-4aaa-84e7-0d5be01b11c9" />
+# SenDiMoniProg — Embedded Sensing, ROS 2 & Navigation Interfaces
 
-The SenDiMoniProg-IMU project is part of the research activities carried out within the SenDiMoniProg Laboratory of the Tracking research group. Its main objective is to integrate Inertial Measurement Units (IMUs) with embedded systems and the ROS 2 framework, enabling real-time acquisition, processing, and visualization of motion and orientation data.
+<p align="center">
+  <strong>IMU · GNSS · Intel RealSense · ROS 2 · Jetson-class computing · ESP32 telemetry · MQTT / WebSocket transport</strong>
+</p>
 
-IMUs provide critical information such as acceleration, angular velocity, and orientation, which are fundamental in fields like robotics, aerospace engineering, autonomous vehicles, and diagnostics. However, using IMUs in isolation has limitations due to sensor drift, noise, and calibration requirements. This project addresses these challenges by providing tools and frameworks for sensor fusion and by integrating IMU data with other subsystems such as GPS, control algorithms, and visualization platforms.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/embedded-installation.png" width="47%" alt="Embedded installation">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/pointcloud-map.png" width="47%" alt="RealSense point-cloud visualization">
+</p>
 
-## 🚀 Prerequisites
+This repository collects the embedded sensing and communication work developed within the **SenDiMoniProg Laboratory at National Central University (Taiwan)**. The objective is to move sensor data reliably from distributed hardware into a ROS 2 environment where it can be logged, visualized, synchronized, and consumed by downstream navigation and state-estimation components.
 
-Before working with this repository, make sure you have: 
+The repository focuses on the infrastructure immediately surrounding navigation:
 
-- [Git](https://git-scm.com/)  
-- A [GitHub](https://github.com/) account  
-- SSH access configured on your machine  
-- [Python 3.10+](https://www.python.org/downloads/)  
-- [ROS 2 Kilted](https://docs.ros.org/en/kilted/Installation.html) (recommended) (ignore this for now cause the image includes everything you will need)
-- [colcon](https://colcon.readthedocs.io/en/released/) for building ROS 2 workspaces  
+~~~text
+physical sensors
+→ embedded acquisition
+→ local filtering / calibration
+→ network transport
+→ ROS 2 topics
+→ visualization / logging
+→ downstream estimation and autonomy
+~~~
 
-Verify your installations:
-
-```bash
-git --version
-python3 --version
-ros2 --version
-```
-
----
-
-## 📥 Clone the Repository
-
-Clone the repo using SSH:
-
-```bash
-git clone git@github.com:kosmicplane/SenDiMoniProg-IMU.git
-cd SenDiMoniProg-IMU
-```
-
-If you cloned using HTTPS and want to switch to SSH:
-
-```bash
-git remote set-url origin git@github.com:kosmicplane/SenDiMoniProg-IMU.git
-```
+The implemented work includes IMU acquisition, RealSense color/depth streaming, MQTT and WebSocket transport, ROS 2 bridging, containerized workflows, and laboratory / field-oriented testing.
 
 ---
 
-## ⚙️ Setup the Environment
+## System architecture
 
-1. Create and activate a Python virtual environment:
+~~~mermaid
+flowchart LR
+    A[IMU / GNSS / RealSense] --> B[ESP32 / Jetson acquisition]
+    B --> C[Calibration + timestamping]
+    C --> D[MQTT / WebSocket transport]
+    D --> E[ROS 2 interfaces]
+    E --> F[RViz / desktop UI / logging]
+    E --> G[Navigation and estimation consumers]
+~~~
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
+### IMU bridge
 
-2. Install Python dependencies:
+The WebSocket bridge separates the embedded publisher from the workstation ROS graph:
 
-```bash
-pip install -r requirements.txt
-```
+~~~text
+IMU hardware
+→ ROS 2 /imu/data on Jetson
+→ imu_ws_server
+→ WebSocket transport
+→ imu_ws_client on PC
+→ ROS 2 /imu/data
+→ RViz / Foxglove / logging
+~~~
 
-3. Initialize rosdep (for ROS dependencies):
-
-```bash
-sudo rosdep init   # only if not initialized before
-rosdep update
-rosdep install --from-paths src --ignore-src -r -y
-```
-## 📌 Git Workflow
-
-Always keep your repository updated:
-
-```bash
-git checkout main
-git pull origin main
-```
-
-When contributing:
-
-```bash
-git checkout -b feature/your-feature-name
-git add .
-git commit -m "Add feature: description"
-git push origin feature/your-feature-name
-```
-
-Open a **Pull Request (PR)** on GitHub once your feature is ready.
+This design is useful when DDS discovery or direct ROS 2 communication is inconvenient across network boundaries.
 
 ---
 
-## ✅ Confirm Your Participation
+## Camera / depth transport
 
-After cloning and configuring the repo, make your first commit:
+The RealSense path uses MQTT to stream color and depth matrices together with timing and calibration metadata.
 
-```bash
-git add .
-git commit -m "I have joined the repo"
-git push
-```
+Representative topics:
+
+| Topic | Content |
+|---|---|
+| cam/jetson01/color_mat | raw BGR8 image matrix |
+| cam/jetson01/depth_mat | raw Z16 depth matrix |
+| cam/jetson01/meta | sequence, capture time, FPS, intrinsics, model |
+| cam/jetson01/calib | intrinsics and depth scale |
+| cam/jetson01/status | status / configuration snapshot |
+| imu/jetson01/raw | IMU stream |
+| cam/jetson01/control | runtime control payload |
+
+The frame header preserves the information needed to reconstruct the matrix deterministically:
+
+~~~text
+magic       4 bytes  'RSF1'
+kind        uint8    0=color, 1=depth
+seq         uint32
+t_cap_ns    uint64
+w, h        uint16
+channels    uint8
+dtype_code  uint8
+payload_len uint32
+payload     raw contiguous bytes
+~~~
+
+For timing analysis, the relevant end-to-end transport quantity is
+
+[
+t_{e2e}=t_{receive}-t_{capture}.
+]
+
+Project testing documented a reduction of the ESP32 → Jetson → server telemetry path from **92 ms to 6 ms** after pipeline optimization in the tested configuration.
 
 ---
 
-## 📚 Additional Resources
+## Sensor-model perspective
 
-- [ROS 2 Documentation](https://docs.ros.org/en/humble/)  
-- [Git Best Practices](https://nvie.com/posts/a-successful-git-branching-model/)  
-- [Colcon Build System](https://colcon.readthedocs.io/en/released/)  
-- [Connecting to GitHub with SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh)
+An IMU does not directly provide drift-free position. A useful measurement abstraction is
+
+[
+omega_m=omega+b_g+n_g,
+]
+
+[
+a_m=R^	op(a-g)+b_a+n_a,
+]
+
+where b_g and b_a represent sensor biases and n_g and n_a measurement noise. This is why calibration, frame conventions, timestamp consistency, and synchronized transport matter before any downstream estimator is evaluated.
+
+This repository primarily documents the **measurement, transport, and ROS-interface layers**. Downstream estimator performance should be validated separately from the communication layer that feeds it.
 
 ---
 
-## 📷 MQTT RealSense Streaming + UI
+## Visual evidence
 
-This repo includes a Jetson publisher and a desktop UI that streams and visualizes **color + depth** frames over MQTT.
+<table>
+<tr>
+<td width="33%" align="center">
+<a href="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/media/projects/ncu-depth-pointcloud.mp4">
+<img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/pointcloud-map.png" width="100%" alt="Depth point cloud">
+</a><br><b>Depth / point-cloud pipeline</b>
+</td>
+<td width="33%" align="center">
+<a href="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/media/projects/ncu-rviz-demo.mp4">
+<img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/realsense.webp" width="100%" alt="ROS 2 RViz demo">
+</a><br><b>ROS 2 / RViz integration</b>
+</td>
+<td width="33%" align="center">
+<img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/hardware.webp" width="100%" alt="Embedded hardware"><br><b>Embedded hardware</b>
+</td>
+</tr>
+</table>
 
-### ✅ Broker configuration (LAN recommended)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/iipp-conference.png" width="31%" alt="IIPP conference">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/team-prof-pan.png" width="31%" alt="Research team with Prof. Min-Chun Pan">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/ncu-team-sign.png" width="31%" alt="NCU research team">
+</p>
 
-Set the broker using environment variables (no hardcoded hosts):
+Click the first two panels to open the project videos.
 
-- `MQTT_HOST`
-- `MQTT_PORT`
-- `MQTT_USER`
-- `MQTT_PASS`
+---
 
-Recommended broker on the laptop (LAN):
+## Repository map
 
-```bash
-sudo apt install mosquitto mosquitto-clients
-```
+~~~text
+Sensors/
+├── IMU/               acquisition, logging, calibration-oriented work
+├── Camera_RS/         RealSense image / depth transport
+└── RTK_GNSS/          GNSS-oriented integration area
 
-### ✅ Topics
+Bridge/
+├── MQTT/              MQTT transport components
+└── test_imu_ws_client.py
 
-**Publisher output**
+ROS2/                  ROS 2 packages and workspace material
+Docker/                reproducible runtime environments
+Oriented_Tests/        field / scenario-specific tests
+Instructive/           bridge and setup instructions
+~~~
 
-- `cam/jetson01/color_mat` — binary frame (header + raw BGR8 bytes)
-- `cam/jetson01/depth_mat` — binary frame (header + raw Z16 bytes)
-- `cam/jetson01/meta` — JSON metadata (`seq`, `t_cap_ns`, fps, intrinsics, model)
-- `cam/jetson01/calib` — JSON calibration snapshot (`intrinsics`, `depth_scale`)
-- `cam/jetson01/status` — JSON status/config snapshot
+---
 
-**IMU input (separate node)**
+## Running the IMU WebSocket bridge
 
-- `imu/jetson01/raw` — CSV IMU stream (accel/gyro/mag + env)
+### Jetson-side server
 
-**Control input**
+~~~bash
+cd /home/SenDiMoniProg-IMU/ROS2/ROS2_PACKAGES
+colcon build --symlink-install --packages-select imu_bt_publisher imu_ws_server
+source install/setup.bash
 
-- `cam/jetson01/control` — JSON config payload (e.g. streaming enable/disable).
+ros2 run imu_bt_publisher imu_publisher
+ros2 run imu_ws_server imu_ws_server_node
+~~~
 
-Example control payload:
+### Workstation client
 
-```json
-{
-  "streaming_enabled": true
-}
-```
+~~~bash
+cd /home/SenDiMoniProg-IMU/ROS2/ROS2_PACKAGES
+colcon build --symlink-install --packages-select imu_ws_client
+source install/setup.bash
 
-### Frame binary format (RSF1)
+ros2 run imu_ws_client imu_ws_client_node --ros-args \
+  -p ws_url:=ws://<JETSON_IP_OR_VPN>:8765
+~~~
 
-Frames are raw numpy matrices with a fixed little-endian header (no JPG/PNG):
+Then inspect /imu/data using RViz2, Foxglove, ros2 topic echo, or your own consumer node.
 
-```
-magic:      4 bytes  b'RSF1'
-kind:       uint8    (0=color, 1=depth)
-seq:        uint32
-t_cap_ns:   uint64   (time.time_ns() at capture)
-w:          uint16
-h:          uint16
-channels:   uint8    (3 for color, 1 for depth)
-dtype_code: uint8    (1=uint8, 2=uint16)
-payload_len:uint32
-payload:    raw contiguous bytes
-```
+---
 
-### How to run (Jetson + Laptop)
+## Running the RealSense MQTT path
 
-**Jetson (publisher)**
+### Broker configuration
 
-```bash
-export MQTT_HOST=192.168.1.10
+~~~bash
+export MQTT_HOST=<BROKER_IP>
 export MQTT_PORT=1883
+~~~
+
+### Publisher
+
+~~~bash
 python3 MQTT/Mosquitto_RealSense_Camara.py
-```
+~~~
 
-**Laptop (viewer)**
+### Desktop viewer
 
-```bash
-sudo apt install python3-pyqt6 python3-pyqt6.qtcharts
-export MQTT_HOST=192.168.1.10
-export MQTT_PORT=1883
+~~~bash
 python3 MQTT/qt_viewer_app.py
-```
+~~~
 
-### Troubleshooting
+A synthetic demo mode is available when no camera is connected:
 
-- **No frames?** Ensure the broker is reachable in LAN and the topics match.
-- **PyQt6 missing?** Install via APT: `sudo apt install python3-pyqt6 python3-pyqt6.qtcharts`.
-- **Optional LZ4:** install `sudo apt install python3-lz4` and set `RSF_LZ4=1` on both sides.
-
-### Demo Mode (no hardware)
-
-If you do not have a RealSense available, the UI can run in **demo mode** to display synthetic frames:
-
-```bash
+~~~bash
 DEMO_MODE=1 python3 MQTT/qt_viewer_app.py
-```
+~~~
 
-### Dependencies (APT)
+---
 
-```bash
-sudo apt install python3-paho-mqtt python3-numpy python3-opencv
-```
+## Engineering notes
 
-For the UI, add Qt (if not already installed):
+- Preserve sensor timestamps as close to acquisition as possible.
+- Keep coordinate frames explicit at every interface.
+- Treat network transport and DDS discovery as measurable parts of the sensing pipeline.
+- Record calibration state and sensor provenance with datasets.
+- Validate a downstream estimator separately from the transport layer that feeds it.
 
-```bash
-sudo apt install python3-pyqt6 python3-pyqt6.qtcharts
-```
-
-For the Jetson publisher, install **librealsense / pyrealsense2** for your platform.
+See [BRIDGE_INSTRUCTIONS.md](Instructive/BRIDGE_INSTRUCTIONS.md) for the detailed WebSocket overlay instructions.
