@@ -92,9 +92,9 @@ for accelerometer measurements.
 
 Here:
 
-- \(\mathbf b_g\) and \(\mathbf b_a\) are sensor biases;
-- \(\mathbf n_g\) and \(\mathbf n_a\) represent measurement noise;
-- \(R\) encodes the selected frame convention.
+- $\mathbf b_g$ and $\mathbf b_a$ are sensor biases;
+- $\mathbf n_g$ and $\mathbf n_a$ represent measurement noise;
+- $R$ encodes the selected frame convention.
 
 This is why calibration, timestamps, and coordinate frames are first-class parts of the pipeline rather than bookkeeping details.
 
