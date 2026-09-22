@@ -1,126 +1,133 @@
-# SenDiMoniProg — Embedded Sensing, ROS 2 & Navigation Interfaces
+# SenDiMoniProg — Embedded Sensing & ROS 2 Navigation Infrastructure
 
 <p align="center">
-  <strong>IMU · GNSS · Intel RealSense · ROS 2 · Jetson-class computing · ESP32 telemetry · MQTT / WebSocket transport</strong>
+  <strong>IMU · GNSS · Intel RealSense · ROS 2 · Jetson-class computing · ESP32 · MQTT / WebSocket transport · field testing</strong>
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/embedded-installation.png" width="48%" alt="Embedded sensing installation">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/team-prof-pan.png" width="48%" alt="Research team with Prof. Min-Chun Pan">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/new/embedded-stack.webp" width="48%" alt="Embedded sensor stack">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/new/hardware-red-rig.webp" width="48%" alt="Embedded hardware test rig">
 </p>
 
-This repository collects embedded sensing, transport, and ROS 2 integration work developed within the **SenDiMoniProg Laboratory at National Central University (Taiwan)**.
+## Project objective
 
-The engineering objective is to move sensor data from distributed hardware into a ROS 2 environment while preserving the information needed for downstream navigation: timestamps, coordinate-frame meaning, calibration state, transport provenance, and repeatable logging.
+SenDiMoniProg is an embedded sensing and robotics-integration stack for transporting synchronized sensor measurements from distributed hardware into a ROS 2 environment suitable for navigation, visualization, logging, and downstream state estimation.
 
-The implemented pipeline spans
+The engineering problem is broader than publishing a ROS topic. The pipeline must preserve:
 
-~~~text
-physical sensors
+- acquisition timestamps;
+- frame conventions;
+- calibration parameters;
+- sensor provenance;
+- network latency;
+- message freshness;
+- reproducible launch and logging behavior.
+
+The implemented path is
+
+```text
+IMU / GNSS / RealSense
 → embedded acquisition
-→ calibration / timestamping
-→ MQTT or WebSocket transport
-→ ROS 2 topics
-→ RViz / desktop visualization / logging
-→ downstream navigation and estimation
-~~~
-
-The repository should therefore be read primarily as a **sensor-interface and distributed robotics infrastructure project**, not as a claim that every downstream estimator or autonomy algorithm has already been fully validated.
+→ calibration and timestamping
+→ MQTT / WebSocket transport
+→ ROS 2 interfaces
+→ visualization / logging
+→ navigation and estimation consumers
+```
 
 ---
 
-## System architecture
+## 1. System architecture
 
-~~~mermaid
+```mermaid
 flowchart LR
     A[IMU / GNSS / RealSense] --> B[ESP32 / Jetson acquisition]
     B --> C[Calibration + timestamping]
-    C --> D[MQTT / WebSocket transport]
-    D --> E[ROS 2 interfaces]
-    E --> F[RViz / desktop UI / logging]
-    E --> G[Navigation / estimation consumers]
-~~~
+    C --> D[MQTT / WebSocket]
+    D --> E[ROS 2 topics]
+    E --> F[RViz / logging]
+    E --> G[EKF / UKF / VIO / SLAM consumers]
+```
 
-### IMU bridge
+The transport layer and estimator layer are deliberately separated. Reliable sensor delivery is necessary for navigation, but it is not itself proof of estimator accuracy.
 
-The WebSocket bridge separates the embedded ROS graph from the workstation:
+---
 
-~~~text
+## 2. IMU measurement model
+
+A standard gyroscope model is
+
+```math
+\omega_m
+=
+\omega
++
+b_g
++
+n_g.
+```
+
+A standard accelerometer model is
+
+```math
+a_m
+=
+R^\mathsf{T}
+\left(
+a-g
+\right)
++
+b_a
++
+n_a.
+```
+
+where:
+
+- `b_g` and `b_a` are sensor biases;
+- `n_g` and `n_a` represent measurement noise;
+- `R` is the selected frame transformation;
+- `g` is the gravity vector in the corresponding reference convention.
+
+The model makes timestamping, calibration, and coordinate frames part of the measurement definition rather than post-processing details.
+
+---
+
+## 3. Distributed transport architecture
+
+### 3.1 IMU WebSocket bridge
+
+```text
 IMU hardware
-→ ROS 2 /imu/data on Jetson
+→ ROS 2 /imu/data on embedded computer
 → imu_ws_server
 → WebSocket transport
 → imu_ws_client on workstation
-→ ROS 2 /imu/data
-→ RViz / Foxglove / logging
-~~~
+→ reconstructed ROS 2 /imu/data
+→ RViz / logger / estimator
+```
 
-This architecture is useful when direct DDS discovery is unreliable or inconvenient across network boundaries.
+This bridge is useful when DDS discovery is unreliable across network boundaries or when a controlled application-layer transport is required.
 
----
+### 3.2 RealSense path
 
-## IMU measurement model
+The camera/depth pipeline transports image matrices together with metadata required for deterministic reconstruction.
 
-An inertial sensor does not directly provide drift-free position. A standard measurement abstraction is
-
-$$
-\boldsymbol{\omega}_m
-=
-\boldsymbol{\omega}
-+
-\mathbf b_g
-+
-\mathbf n_g,
-$$
-
-for gyroscope measurements, and
-
-$$
-\mathbf a_m
-=
-R^\top
-\left(
-\mathbf a-\mathbf g
-\right)
-+
-\mathbf b_a
-+
-\mathbf n_a,
-$$
-
-for accelerometer measurements.
-
-Here:
-
-- $\mathbf b_g$ and $\mathbf b_a$ are sensor biases;
-- $\mathbf n_g$ and $\mathbf n_a$ represent measurement noise;
-- $R$ encodes the selected frame convention.
-
-This is why calibration, timestamps, and coordinate frames are first-class parts of the pipeline rather than bookkeeping details.
-
----
-
-## Camera and depth transport
-
-The Intel RealSense path streams color/depth matrices together with metadata needed to reconstruct each frame consistently.
-
-Representative topics include:
-
-| Topic | Content |
+| Topic | Payload |
 |---|---|
-| cam/jetson01/color_mat | raw BGR8 image matrix |
-| cam/jetson01/depth_mat | raw Z16 depth matrix |
-| cam/jetson01/meta | sequence, capture time, FPS, intrinsics, model |
-| cam/jetson01/calib | intrinsics and depth scale |
-| cam/jetson01/status | status / configuration snapshot |
-| imu/jetson01/raw | IMU stream |
-| cam/jetson01/control | runtime control payload |
+| `cam/jetson01/color_mat` | BGR8 color matrix |
+| `cam/jetson01/depth_mat` | Z16 depth matrix |
+| `cam/jetson01/meta` | sequence, capture time, FPS, intrinsics |
+| `cam/jetson01/calib` | calibration parameters and depth scale |
+| `cam/jetson01/status` | sensor/runtime status |
+| `imu/jetson01/raw` | inertial stream |
+| `cam/jetson01/control` | runtime control payload |
 
-The transport header preserves deterministic reconstruction information:
+Representative binary framing:
 
-~~~text
-magic       4 bytes  'RSF1'
-kind        uint8    0=color, 1=depth
+```text
+magic       4 bytes   RSF1
+kind        uint8     color / depth
 seq         uint32
 t_cap_ns    uint64
 w, h        uint16
@@ -128,164 +135,188 @@ channels    uint8
 dtype_code  uint8
 payload_len uint32
 payload     raw contiguous bytes
-~~~
+```
 
 ---
 
-## End-to-end timing
+## 4. Timing and latency
 
-For a captured sample, the transport latency is evaluated as
+For a sample captured at time `t_cap` and received at `t_rx`, the end-to-end latency is
 
-$$
+```math
 t_{\mathrm{e2e}}
 =
-t_{\mathrm{receive}}
+t_{\mathrm{rx}}
 -
-t_{\mathrm{capture}}.
-$$
+t_{\mathrm{cap}}.
+```
 
-In the tested ESP32 → Jetson → server pipeline, optimization reduced end-to-end latency from **92 ms to 6 ms**.
+The tested ESP32 → Jetson → server path was reduced from **92 ms to 6 ms** after transport and networking optimization.
 
-This value is specific to the tested configuration and should be interpreted as a systems result for that pipeline rather than a universal ROS 2 or network benchmark.
+That value is specific to the tested hardware/network configuration; it should not be interpreted as a universal ROS 2 benchmark.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/report/network-baseline-a.png" width="31%" alt="Network baseline test A">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/report/network-baseline-b.png" width="31%" alt="Network baseline test B">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/report/network-tuned.png" width="31%" alt="Network tuned result">
+</p>
+
+These plots document the network path rather than estimator performance.
 
 ---
 
-## Operational evidence
+## 5. Depth sensing and point-cloud pipeline
 
-### RealSense depth / point-cloud path
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/report/depth-sensor.png" width="48%" alt="Depth sensor">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/new/pointcloud-scene.webp" width="48%" alt="Point-cloud scene">
+</p>
+
+The depth pipeline verifies that camera/depth data can be acquired, transported, reconstructed, and visualized with the associated calibration metadata.
+
+### Operational video
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/media/projects/ncu-depth-pointcloud.mp4">
-    <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/pointcloud-map.png" width="760" alt="RealSense depth and point-cloud visualization">
+    <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/pointcloud-map.png" width="760" alt="Depth and point-cloud operation">
   </a>
 </p>
 
-The clip documents depth acquisition and point-cloud visualization rather than only showing the final ROS topic state.
+---
 
-### ROS 2 / RViz integration
+## 6. ROS 2 integration evidence
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/media/projects/ncu-rviz-demo.mp4">
-    <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/realsense.webp" width="760" alt="ROS 2 RViz sensor integration">
+    <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/realsense.webp" width="760" alt="RViz sensor integration">
   </a>
 </p>
 
-This demonstrates sensor information reaching the ROS 2 visualization layer after network transport and bridging.
-
-### Embedded hardware
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/hardware.webp" width="760" alt="Embedded sensing hardware">
-</p>
-
-> Click either video thumbnail to open the corresponding MP4.
+This demonstration verifies the sensor-to-ROS visualization path after network transport and topic reconstruction.
 
 ---
 
-## Research environment and field context
+## 7. Hardware integration
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/iipp-conference.png" width="32%" alt="IIPP conference">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/ncu-team-sign.png" width="32%" alt="NCU team">
-  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/network-dedicated.webp" width="32%" alt="Dedicated network test configuration">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/report/embedded-rig.png" width="48%" alt="Embedded rig">
+  <img src="https://raw.githubusercontent.com/kosmicplane/kosmicplane.github.io/main/assets/images/research/ncu/new/embedded-installed.webp" width="48%" alt="Embedded hardware installation">
 </p>
 
-These images document the research environment and network/sensor-integration context without duplicating the hardware and point-cloud figures above.
+The hardware layer includes Jetson-class processing, ESP32-based acquisition/telemetry, inertial sensing, GNSS-oriented integration, and RealSense sensing.
 
 ---
 
-## Repository map
+## 8. Downstream state estimation
 
-~~~text
+The repository interfaces are designed to support multi-sensor estimators such as EKF/UKF pipelines and VIO/SLAM fallbacks.
+
+For a generic nonlinear process model,
+
+```math
+x_{k+1}
+=
+f(x_k,u_k)
++
+w_k,
+```
+
+and measurement model
+
+```math
+z_k
+=
+h(x_k)
++
+v_k,
+```
+
+the transport layer must provide temporally meaningful `z_k` measurements with known frame and covariance semantics.
+
+Estimator performance must be validated separately from transport performance.
+
+---
+
+## 9. Repository map
+
+```text
 Sensors/
-├── IMU/               acquisition, logging, calibration-oriented work
-├── Camera_RS/         RealSense image / depth transport
-└── RTK_GNSS/          GNSS-oriented integration area
+├── IMU/
+├── Camera_RS/
+└── RTK_GNSS/
 
 Bridge/
-├── MQTT/              MQTT transport components
+├── MQTT/
 └── test_imu_ws_client.py
 
-ROS2/                  ROS 2 packages and workspace material
-Docker/                reproducible runtime environments
-Oriented_Tests/        field / scenario-specific tests
-Instructive/           bridge and setup instructions
-~~~
+ROS2/            ROS 2 packages and workspace material
+Docker/          reproducible runtime environments
+Oriented_Tests/  field / scenario-specific experiments
+Instructive/     setup and bridge documentation
+```
 
 ---
 
-## Running the IMU WebSocket bridge
+## 10. Running the IMU bridge
 
-### Jetson-side server
+### Embedded-side server
 
-~~~bash
+```bash
 cd /home/SenDiMoniProg-IMU/ROS2/ROS2_PACKAGES
 colcon build --symlink-install --packages-select imu_bt_publisher imu_ws_server
 source install/setup.bash
 
 ros2 run imu_bt_publisher imu_publisher
 ros2 run imu_ws_server imu_ws_server_node
-~~~
+```
 
 ### Workstation client
 
-~~~bash
+```bash
 cd /home/SenDiMoniProg-IMU/ROS2/ROS2_PACKAGES
 colcon build --symlink-install --packages-select imu_ws_client
 source install/setup.bash
 
 ros2 run imu_ws_client imu_ws_client_node --ros-args \
   -p ws_url:=ws://<JETSON_IP_OR_VPN>:8765
-~~~
-
-The resulting <code>/imu/data</code> stream can be inspected with RViz2, Foxglove, <code>ros2 topic echo</code>, or another ROS 2 consumer.
+```
 
 ---
 
-## Running the RealSense MQTT path
+## 11. Running the RealSense MQTT path
 
-### Broker configuration
-
-~~~bash
+```bash
 export MQTT_HOST=<BROKER_IP>
 export MQTT_PORT=1883
-~~~
-
-### Publisher
-
-~~~bash
 python3 MQTT/Mosquitto_RealSense_Camara.py
-~~~
+```
 
-### Desktop viewer
+Viewer:
 
-~~~bash
+```bash
 python3 MQTT/qt_viewer_app.py
-~~~
+```
 
-A synthetic demo mode is available when no camera is connected:
+Synthetic/demo mode:
 
-~~~bash
+```bash
 DEMO_MODE=1 python3 MQTT/qt_viewer_app.py
-~~~
+```
 
 ---
 
-## Validation boundary
+## 12. Validation boundary
 
-The repository documents the **measurement, transport, and ROS-interface layers**. EKF/UKF fusion, VIO/SLAM, and higher-level autonomy can consume this infrastructure, but their estimator performance must be validated independently from the transport layer.
+The repository directly supports claims about:
 
-That distinction is important: reliable delivery of calibrated sensor data is necessary for navigation, but it is not itself proof of estimator accuracy.
+- sensor acquisition;
+- metadata preservation;
+- transport;
+- ROS 2 interface reconstruction;
+- latency measurements from the tested network path;
+- visualization/logging;
+- embedded integration.
 
----
+Claims about navigation accuracy, VIO/SLAM robustness, or EKF/UKF state-estimation quality require the corresponding estimator experiment and ground truth.
 
-## Engineering principles
-
-- preserve sensor timestamps as close to acquisition as possible;
-- keep coordinate frames explicit at every interface;
-- treat transport latency and DDS/network behavior as measurable engineering quantities;
-- record calibration state and sensor provenance with datasets;
-- separate sensor/transport validation from downstream estimator validation;
-- prefer reproducible launch, logging, and containerized workflows over ad-hoc experiment setup.
-
-See [BRIDGE_INSTRUCTIONS.md](Instructive/BRIDGE_INSTRUCTIONS.md) for the detailed WebSocket overlay instructions.
+See [BRIDGE_INSTRUCTIONS.md](Instructive/BRIDGE_INSTRUCTIONS.md) for bridge setup details.
