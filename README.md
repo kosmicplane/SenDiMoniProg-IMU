@@ -72,10 +72,7 @@ A standard accelerometer model is
 ```math
 a_m
 =
-R^\mathsf{T}
-\left(
-a-g
-\right)
+R^T(a-g)
 +
 b_a
 +
